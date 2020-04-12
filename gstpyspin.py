@@ -46,9 +46,7 @@ class PySpinSrc(GstBase.PushSrc):
     __gsttemplates__ = Gst.PadTemplate.new(
         "src", Gst.PadDirection.SRC, Gst.PadPresence.ALWAYS, OCAPS,
     )
-
-    # Explanation: https://python-gtk-3-tutorial.readthedocs.io/en/latest/objects.html#GObject.GObject.__gproperties__
-    # Example: https://python-gtk-3-tutorial.readthedocs.io/en/latest/objects.html#properties
+    
     __gproperties__ = {
         "exposure": (
             int,
@@ -75,16 +73,16 @@ class PySpinSrc(GstBase.PushSrc):
     
 
     def do_set_caps(self, caps):
-        print("set caps")
         self.info.from_caps(caps)    
         self.set_blocksize(self.info.size)
 
         try:
             self.cam.Width.SetValue(self.info.width)
             print("Width: ", self.cam.Width.GetValue())
+
             self.cam.Height.SetValue(self.info.height)
             print("Height: ", self.cam.Height.GetValue())
-            #self.cam.PixelFormat.SetValue(PySpin.PixelFormat_RGB8)
+
             self.cam.PixelFormat.SetValue(PySpin.PixelFormat_BGR8)
             print("Pixel format: ", self.cam.PixelFormat.GetCurrentEntry().GetSymbolic())
 
@@ -99,7 +97,11 @@ class PySpinSrc(GstBase.PushSrc):
             print('Error: %s' % ex)
             return False
 
+        self.timestamp_offset = 0
+        self.previous_timestamp = 0
+
         self.cam.BeginAcquisition()
+
         return True
 
     def do_get_property(self, prop: GObject.GParamSpec):
@@ -109,8 +111,7 @@ class PySpinSrc(GstBase.PushSrc):
             raise AttributeError("unknown property %s" % prop.name)
 
     def do_start(self):
-        print("Start")
-            # Retrieve singleton reference to system object
+        # Retrieve singleton reference to system object
         self.system = PySpin.System.GetInstance()
 
         # Retrieve list of cameras from the system
@@ -136,7 +137,7 @@ class PySpinSrc(GstBase.PushSrc):
         return True
 
     def do_stop(self):
-        print("stop")
+
         self.cam.EndAcquisition()
         self.cam.DeInit()
 
@@ -147,7 +148,6 @@ class PySpinSrc(GstBase.PushSrc):
         return True
 
     def do_get_times(self, buf):
-
         end = 0
         start = 0
         if self.is_live:
@@ -163,26 +163,24 @@ class PySpinSrc(GstBase.PushSrc):
 
         return start, end
 
-    #@vfunc(GstBase.PushSrc)
     def do_gst_push_src_fill(self, buffer: Gst.Buffer) -> Gst.FlowReturn:
-        print(buffer.get_size())
-        print("Try sending data")
+
         duration = 10**9 / self.info.fps_n / self.info.fps_d
 
-        start = (self.frame * 10) % 680
-
         spinnaker_image = self.cam.GetNextImage()
+        image_timestamp = spinnaker_image.GetTimeStamp() 
         image = gst_buffer_with_pad_to_ndarray(buffer, self.srcpad)
         image[:] = spinnaker_image.GetNDArray()
-        # image[:] = image[...,::-1]
         spinnaker_image.Release() 
 
-        # set pts and duration to be able to record video, calculate fps
-        self.pts += duration  # Increase pts by duration
-        buffer.pts = self.pts
-        buffer.duration = duration
+        if(self.timestamp_offset == 0):
+            self.timestamp_offset = image_timestamp
+            self.previous_timestamp = image_timestamp 
 
-        # return (Gst.FlowReturn.OK, buffer)
+        buffer.pts = image_timestamp - self.timestamp_offset
+        buffer.duration = image_timestamp - self.previous_timestamp
+
+        self.previous_timestamp = image_timestamp
 
         return Gst.FlowReturn.OK
 
@@ -192,7 +190,6 @@ class PySpinSrc(GstBase.PushSrc):
             self.exposure = value
         else:
             raise AttributeError("unknown property %s" % prop.name)
-
 
 # Register plugin to use it from command line
 GObject.type_register(PySpinSrc)
