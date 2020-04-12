@@ -164,6 +164,7 @@ class PySpinSrc(GstBase.PushSrc):
 
     # Camera helper function
     def apply_caps_to_cam(self) -> bool:
+        print("Applying caps.")
         try:
             # Apply Caps
             self.cam.Width.SetValue(self.info.width)
@@ -182,9 +183,11 @@ class PySpinSrc(GstBase.PushSrc):
         except PySpin.SpinnakerException as ex:
             print('Error: %s' % ex)
             return False
+        return True
 
     # Camera helper function
     def apply_properties_to_cam(self) -> bool:
+        print("Applying properties.")
         try:
             # Apply Properties
             if self.auto_exposure:
@@ -216,7 +219,7 @@ class PySpinSrc(GstBase.PushSrc):
 
         # Ensure that acquisition is stopped before applying settings
         try:
-            self.cam.AcuisitionStop()
+            self.cam.AcquisitionStop()
         except PySpin.SpinnakerException as ex:
             print("Acquisition stopped to apply settings")
 
@@ -235,6 +238,8 @@ class PySpinSrc(GstBase.PushSrc):
         except PySpin.SpinnakerException as ex:
             print('Error: %s' % ex)
             return False
+        
+        print("Streaming started.")
 
         return True
     
