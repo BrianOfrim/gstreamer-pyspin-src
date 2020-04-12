@@ -46,7 +46,7 @@ class PySpinSrc(GstBase.PushSrc):
     __gsttemplates__ = Gst.PadTemplate.new(
         "src", Gst.PadDirection.SRC, Gst.PadPresence.ALWAYS, OCAPS,
     )
-    
+
     __gproperties__ = {
         "exposure": (
             int,
@@ -57,6 +57,13 @@ class PySpinSrc(GstBase.PushSrc):
             DEFAULT_EXPOSURE_TIME,
             GObject.ParamFlags.READWRITE,
         ),
+        "serial": (
+            str,
+            "serial number",
+            "The camera serial number",
+            None,
+            GObject.ParamFlags.READWRITE
+        ),
     }
 
     def __init__(self):
@@ -65,7 +72,7 @@ class PySpinSrc(GstBase.PushSrc):
         # Initialize properties before Base Class initialization
         self.info = GstVideo.VideoInfo()
         self.exposure = DEFAULT_EXPOSURE_TIME
-
+        self.serial = None
         self.frame = 0
         
         self.set_live(True)
@@ -107,37 +114,52 @@ class PySpinSrc(GstBase.PushSrc):
     def do_get_property(self, prop: GObject.GParamSpec):
         if prop.name == "exposure":
             return self.exposure
+        elif prop.name == 'serial':
+            return self.serial
         else:
             raise AttributeError("unknown property %s" % prop.name)
 
+    def do_set_property(self, prop: GObject.GParamSpec, value):
+        print("Setting propery")
+        if prop.name == "exposure":
+            self.exposure = value
+        elif prop.name == 'serial':
+            self.serial = value 
+        else:
+            raise AttributeError("unknown property %s" % prop.name)
+
+
     def do_start(self):
-        # Retrieve singleton reference to system object
+        
+        print("Starting")
         self.system = PySpin.System.GetInstance()
-
-        # Retrieve list of cameras from the system
         self.cam_list = self.system.GetCameras()
-        num_cameras = self.cam_list.GetSize()
 
-        print("Number of cameras detected: %d" % num_cameras)
         # Finish if there are no cameras
-        if num_cameras == 0:
-            # Clear camera list before releasing system
+        if self.cam_list.GetSize() == 0:
             self.cam_list.Clear()
-
-            # Release system instance
             self.system.ReleaseInstance()
-
-            print("Not enough cameras!")
+            print("No cammeras detected.")
             return False
 
-        self.cam = self.cam_list.GetByIndex(0)
+        if(self.serial is None):
+            # No serial provided retrieve the first available camera
+            self.cam = self.cam_list.GetByIndex(0)
+        else:
+            self.cam = self.cam_list.GetBySerial(self.serial)
+
+        if not self.cam or self.cam is None:
+            print("Could not retrieve camera from camera list.")
+            self.cam_list.Clear()
+            self.system.ReleaseInstance()
+            return False
+
         self.cam.Init()
 
-        self.pts = 0
         return True
 
     def do_stop(self):
-
+        print("Stopping")
         self.cam.EndAcquisition()
         self.cam.DeInit()
 
@@ -165,8 +187,6 @@ class PySpinSrc(GstBase.PushSrc):
 
     def do_gst_push_src_fill(self, buffer: Gst.Buffer) -> Gst.FlowReturn:
 
-        duration = 10**9 / self.info.fps_n / self.info.fps_d
-
         spinnaker_image = self.cam.GetNextImage()
         image_timestamp = spinnaker_image.GetTimeStamp() 
         image = gst_buffer_with_pad_to_ndarray(buffer, self.srcpad)
@@ -183,13 +203,6 @@ class PySpinSrc(GstBase.PushSrc):
         self.previous_timestamp = image_timestamp
 
         return Gst.FlowReturn.OK
-
-    def do_set_property(self, prop: GObject.GParamSpec, value):
-        print("Setting propery")
-        if prop.name == "exposure":
-            self.exposure = value
-        else:
-            raise AttributeError("unknown property %s" % prop.name)
 
 # Register plugin to use it from command line
 GObject.type_register(PySpinSrc)
