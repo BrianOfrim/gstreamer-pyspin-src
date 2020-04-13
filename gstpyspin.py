@@ -30,7 +30,7 @@ DEFAULT_EXPOSURE_TIME = 15000
 DEFAULT_AUTO_GAIN = True
 DEFAULT_GAIN = 0.0
 
-Gst.init(None)
+# Gst.init(None)
 
 OCAPS = Gst.Caps(
     Gst.Structure(
@@ -128,7 +128,7 @@ class PySpinSrc(GstBase.PushSrc):
             self.cam.UserSetSelector.SetValue(PySpin.UserSetSelector_Default)
             self.cam.UserSetLoad()
         except PySpin.SpinnakerException as ex:
-            print("Error: %s" % ex)
+            Gst.error(f"Error: {ex}")
             return False
 
         return True
@@ -144,7 +144,7 @@ class PySpinSrc(GstBase.PushSrc):
         )
 
     # Camera helper function
-    def initialize_cam(self) -> bool:
+    def init_cam(self) -> bool:
         try:
             self.system = PySpin.System.GetInstance()
             self.cam_list = self.system.GetCameras()
@@ -152,17 +152,24 @@ class PySpinSrc(GstBase.PushSrc):
             if self.cam_list.GetSize() == 0:
                 self.cam_list.Clear()
                 self.system.ReleaseInstance()
-                print("No cammeras detected.")
+                Gst.error("No cameras detected")
                 return False
 
             if self.serial is None:
                 # No serial provided retrieve the first available camera
                 self.cam = self.cam_list.GetByIndex(0)
+                Gst.info(
+                    f"No serial number provided"
+                    f"Using camera: {self.cam.TLDevice.DeviceSerialNumber.GetValue()}"
+                )
             else:
                 self.cam = self.cam_list.GetBySerial(self.serial)
+                Gst.info(
+                    f"Using camera: {self.cam.TLDevice.DeviceSerialNumber.GetValue()}"
+                )
 
             if not self.cam or self.cam is None:
-                print("Could not retrieve camera from camera list.")
+                Gst.error("Could not retrieve camera from camera list.")
                 self.cam_list.Clear()
                 self.system.ReleaseInstance()
                 return False
@@ -173,67 +180,83 @@ class PySpinSrc(GstBase.PushSrc):
             try:
                 self.cam.AcquisitionStop()
             except PySpin.SpinnakerException as ex:
-                print("Acquisition stopped to apply settings")
+                Gst.info("Acquisition stopped to apply settings")
 
             if not self.apply_default_settings():
                 return False
 
         except PySpin.SpinnakerException as ex:
-            print("Error: %s" % ex)
+            Gst.error(f"Error: {ex}")
+            return False
+
+        return True
+
+    # Camera helper function
+    def deinit_cam(self):
+        try:
+            self.cam.EndAcquisition()
+            Gst.info("Acquisition Ended")
+            self.cam.DeInit()
+            del self.cam
+            self.cam_list.Clear()
+            self.system.ReleaseInstance()
+
+        except PySpin.SpinnakerException as ex:
+            Gst.error(f"Error: {ex}")
             return False
 
         return True
 
     # Camera helper function
     def apply_caps_to_cam(self) -> bool:
-        print("Applying caps.")
+        Gst.info("Applying caps.")
         try:
             # Apply Caps
             self.cam.Width.SetValue(self.info.width)
-            print("Width: ", self.cam.Width.GetValue())
+            Gst.info(f"Width: {self.cam.Width.GetValue()}")
 
             self.cam.Height.SetValue(self.info.height)
-            print("Height: ", self.cam.Height.GetValue())
+            Gst.info(f"Height: {self.cam.Height.GetValue()}")
 
             self.cam.PixelFormat.SetValue(PySpin.PixelFormat_BGR8)
-            print(
-                "Pixel format: ", self.cam.PixelFormat.GetCurrentEntry().GetSymbolic()
+            Gst.info(
+                f"Pixel format: {self.cam.PixelFormat.GetCurrentEntry().GetSymbolic()}"
             )
 
             self.cam.AcquisitionFrameRateEnable.SetValue(True)
             self.cam.AcquisitionFrameRate.SetValue(self.info.fps_n / self.info.fps_d)
-            print("Frame rate: ", self.cam.AcquisitionFrameRate.GetValue())
+            Gst.info(f"Frame rate: {self.cam.AcquisitionFrameRate.GetValue()}")
 
         except PySpin.SpinnakerException as ex:
-            print("Error: %s" % ex)
+            Gst.error(f"Error: {ex}")
             return False
         return True
 
     # Camera helper function
     def apply_properties_to_cam(self) -> bool:
-        print("Applying properties.")
+        Gst.info("Applying properties")
         try:
             # Apply Properties
             if self.auto_exposure:
                 self.cam.ExposureAuto.SetValue(PySpin.ExposureAuto_Continuous)
-                print("Auto Exposure: ", self.cam.ExposureAuto.GetValue())
+                Gst.info(f"Auto Exposure: {self.cam.ExposureAuto.GetValue()}")
             else:
                 self.cam.ExposureAuto.SetValue(PySpin.ExposureAuto_Off)
-                print("Auto Exposure: ", self.cam.ExposureAuto.GetValue())
+                Gst.info(f"Auto Exposure: {self.cam.ExposureAuto.GetValue()}")
                 self.cam.ExposureTime.SetValue(self.exposure_time)
-                print("Exposure time: ", self.cam.ExposureTime.GetValue(), "us")
+                Gst.info(f"Exposure time: {self.cam.ExposureTime.GetValue()}us")
 
             if self.auto_gain:
                 self.cam.GainAuto.SetValue(PySpin.GainAuto_Continuous)
-                print("Auto Gain: ", self.cam.GainAuto.GetValue())
+                Gst.info(f"Auto Gain: {self.cam.GainAuto.GetValue()}")
             else:
                 self.cam.GainAuto.SetValue(PySpin.GainAuto_Off)
-                print("Auto Gain: ", self.cam.GainAuto.GetValue())
+                Gst.info(f"Auto Gain: {self.cam.GainAuto.GetValue()}")
                 self.cam.GainAuto.SetValue(self.gain)
-                print("Gain: ", self.cam.Gain.GetValue(), "db")
+                Gst.info(f"Gain: {self.cam.Gain.GetValue()}db")
 
         except PySpin.SpinnakerException as ex:
-            print("Error: %s" % ex)
+            Gst.error(f"Error: {ex}")
             return False
 
         return True
@@ -251,10 +274,10 @@ class PySpinSrc(GstBase.PushSrc):
             self.cam.AcquisitionMode.SetValue(PySpin.AcquisitionMode_Continuous)
             self.cam.BeginAcquisition()
         except PySpin.SpinnakerException as ex:
-            print("Error: %s" % ex)
+            Gst.error(f"Error: {ex}")
             return False
 
-        print("Streaming started.")
+        Gst.info("Acquisition Started")
 
         return True
 
@@ -267,13 +290,12 @@ class PySpinSrc(GstBase.PushSrc):
 
     # GST function
     def do_fixate(self, caps: Gst.Caps):
-
-        print("Fixate")
+        Gst.info("Fixating caps")
 
         try:
             height, _, width, _ = self.get_roi()
         except PySpin.SpinnakerException as ex:
-            print("Error: %s" % ex)
+            Gst.error(f"Error: {ex}")
             # Error reading camera roi settings, just use default values
             width = DEFAULT_WIDTH
             height = DEFAULT_HEIGHT
@@ -281,7 +303,7 @@ class PySpinSrc(GstBase.PushSrc):
         try:
             frame_rate = self.cam.AcquisitionFrameRate.GetValue()
         except PySpin.SpinnakerException as ex:
-            print("Error: %s" % ex)
+            Gst.error(f"Error: {ex}")
             # Error reading camera framerate, just use default values
             frame_rate = DEFAULT_FRAME_RATE
 
@@ -328,20 +350,13 @@ class PySpinSrc(GstBase.PushSrc):
 
     # GST function
     def do_start(self):
-        print("Starting")
-        return self.initialize_cam()
+        Gst.info("Starting")
+        return self.init_cam()
 
     # GST function
     def do_stop(self):
-        print("Stopping")
-        self.cam.EndAcquisition()
-        self.cam.DeInit()
-
-        del self.cam
-        self.cam_list.Clear()
-        self.system.ReleaseInstance()
-
-        return True
+        Gst.info("Stopping")
+        return self.deinit_cam()
 
     # GST function
     def do_get_times(self, buf):
@@ -367,7 +382,6 @@ class PySpinSrc(GstBase.PushSrc):
         image_timestamp = spinnaker_image.GetTimeStamp()
         image = gst_buffer_with_pad_to_ndarray(buffer, self.srcpad)
         image[:] = spinnaker_image.GetNDArray()
-        spinnaker_image.Release()
 
         if self.timestamp_offset == 0:
             self.timestamp_offset = image_timestamp
@@ -377,6 +391,13 @@ class PySpinSrc(GstBase.PushSrc):
         buffer.duration = image_timestamp - self.previous_timestamp
 
         self.previous_timestamp = image_timestamp
+
+        Gst.log(
+            f"Sending buffer of size: {image.shape} "
+            f"frame id: {spinnaker_image.GetFrameID()} "
+            f"timestamp offset: {buffer.pts}ns"
+        )
+        spinnaker_image.Release()
 
         return Gst.FlowReturn.OK
 
