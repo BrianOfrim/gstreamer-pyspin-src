@@ -25,6 +25,8 @@ DEFAULT_WIDTH = 720
 DEFAULT_HEIGHT = 540
 DEFAULT_FRAME_RATE = 10
 
+DEFAULT_H_BINNING = 1
+DEFAULT_V_BINNING = 1
 DEFAULT_AUTO_EXPOSURE = True
 DEFAULT_EXPOSURE_TIME = 15000
 DEFAULT_AUTO_GAIN = True
@@ -87,6 +89,24 @@ class PySpinSrc(GstBase.PushSrc):
             DEFAULT_GAIN,
             GObject.ParamFlags.READWRITE,
         ),
+        "h-binning": (
+            int,
+            "horizontal binning",
+            "Horizontal average binning (applied before width and offset x)",
+            1,
+            GLib.MAXINT,
+            DEFAULT_H_BINNING,
+            GObject.ParamFlags.READWRITE,
+        ),
+        "v-binning": (
+            int,
+            "vertical binning",
+            "Vertical average binning (applied before height and offset y)",
+            1,
+            GLib.MAXINT,
+            DEFAULT_V_BINNING,
+            GObject.ParamFlags.READWRITE,
+        ),
         "num-buffers": (
             int,
             "number of image buffers",
@@ -117,6 +137,8 @@ class PySpinSrc(GstBase.PushSrc):
         self.exposure_time = DEFAULT_EXPOSURE_TIME
         self.auto_gain = DEFAULT_AUTO_GAIN
         self.gain = DEFAULT_GAIN
+        self.h_binning = DEFAULT_H_BINNING
+        self.v_binning = DEFAULT_V_BINNING
         self.serial = None
 
         self.num_cam_buffers = DEFAULT_NUM_BUFFERS
@@ -223,6 +245,21 @@ class PySpinSrc(GstBase.PushSrc):
     def apply_caps_to_cam(self) -> bool:
         Gst.info("Applying caps.")
         try:
+            # Apply binning before caps
+            if self.h_binning > 1:
+                self.cam.BinningHorizontal.SetValue(self.h_binning)
+                self.cam.BinningHorizontalMode.SetValue(
+                    PySpin.BinningHorizontalMode_Average
+                )
+                Gst.info(f"Horizontal Binning: {self.cam.BinningHorizontal.GetValue()}")
+
+            if self.v_binning > 1:
+                self.cam.BinningVertical.SetValue(self.v_binning)
+                self.cam.BinningVerticalMode.SetValue(
+                    PySpin.BinningVerticalMode_Average
+                )
+                Gst.info(f"Vertical Binning: {self.cam.BinningVertical.GetValue()}")
+
             # Apply Caps
             self.cam.Width.SetValue(self.info.width)
             Gst.info(f"Width: {self.cam.Width.GetValue()}")
@@ -282,20 +319,28 @@ class PySpinSrc(GstBase.PushSrc):
             # Configure Camera Properties
             if self.auto_exposure:
                 self.cam.ExposureAuto.SetValue(PySpin.ExposureAuto_Continuous)
-                Gst.info(f"Auto Exposure: {self.cam.ExposureAuto.GetValue()}")
+                Gst.info(
+                    f"Auto Exposure: {self.cam.ExposureAuto.GetCurrentEntry().GetSymbolic()}"
+                )
             else:
                 self.cam.ExposureAuto.SetValue(PySpin.ExposureAuto_Off)
                 self.cam.ExposureTime.SetValue(self.exposure_time)
-                Gst.info(f"Auto Exposure: {self.cam.ExposureAuto.GetValue()}")
+                Gst.info(
+                    f"Auto Exposure: {self.cam.ExposureAuto.GetCurrentEntry().GetSymbolic()}"
+                )
                 Gst.info(f"Exposure Time: {self.cam.ExposureTime.GetValue()}us")
 
             if self.auto_gain:
                 self.cam.GainAuto.SetValue(PySpin.GainAuto_Continuous)
-                Gst.info(f"Auto Gain: {self.cam.GainAuto.GetValue()}")
+                Gst.info(
+                    f"Auto Gain: {self.cam.GainAuto.GetCurrentEntry().GetSymbolic()}"
+                )
             else:
                 self.cam.GainAuto.SetValue(PySpin.GainAuto_Off)
                 self.cam.GainAuto.SetValue(self.gain)
-                Gst.info(f"Auto Gain: {self.cam.GainAuto.GetValue()}")
+                Gst.info(
+                    f"Auto Gain: {self.cam.GainAuto.GetCurrentEntry().GetSymbolic()}"
+                )
                 Gst.info(f"Gain: {self.cam.Gain.GetValue()}db")
 
         except PySpin.SpinnakerException as ex:
@@ -373,6 +418,10 @@ class PySpinSrc(GstBase.PushSrc):
             return self.auto_gain
         elif prop.name == "gain":
             return self.gain
+        elif prop.name == "h-binning":
+            return self.h_binning
+        elif prop.name == "v-binning":
+            return self.v_binning
         elif prop.name == "num-buffers":
             return self.num_cam_buffers
         elif prop.name == "serial":
@@ -391,6 +440,10 @@ class PySpinSrc(GstBase.PushSrc):
             self.auto_gain = value
         elif prop.name == "gain":
             self.gain = value
+        elif prop.name == "h-binning":
+            self.h_binning = value
+        elif prop.name == "v-binning":
+            self.v_binning = value
         elif prop.name == "num-buffers":
             self.num_cam_buffers = value
         elif prop.name == "serial":
