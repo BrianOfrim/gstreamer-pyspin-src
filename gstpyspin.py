@@ -29,8 +29,9 @@ DEFAULT_AUTO_EXPOSURE = True
 DEFAULT_EXPOSURE_TIME = 15000
 DEFAULT_AUTO_GAIN = True
 DEFAULT_GAIN = 0.0
+DEFAULT_NUM_BUFFERS = 10
 
-# Gst.init(None)
+MILLIESCONDS_PER_NANOSECOND = 1000000
 
 OCAPS = Gst.Caps(
     Gst.Structure(
@@ -86,6 +87,15 @@ class PySpinSrc(GstBase.PushSrc):
             DEFAULT_GAIN,
             GObject.ParamFlags.READWRITE,
         ),
+        "num-buffers": (
+            int,
+            "number of image buffers",
+            "Number of buffers for Spinnaker to allocate for buffer handling",
+            1,
+            GLib.MAXINT,
+            DEFAULT_EXPOSURE_TIME,
+            GObject.ParamFlags.READWRITE,
+        ),
         "serial": (
             str,
             "serial number",
@@ -108,6 +118,8 @@ class PySpinSrc(GstBase.PushSrc):
         self.auto_gain = DEFAULT_AUTO_GAIN
         self.gain = DEFAULT_GAIN
         self.serial = None
+
+        self.num_cam_buffers = DEFAULT_NUM_BUFFERS
 
         # Spinnaker objects
         self.system = None
@@ -232,27 +244,58 @@ class PySpinSrc(GstBase.PushSrc):
             return False
         return True
 
+    # Camera helper funtion
+    def apply_properties_to_transport_layer(self) -> bool:
+        try:
+            # Configure Transport Layer Properties
+            self.cam.TLStream.StreamBufferHandlingMode.SetValue(
+                PySpin.StreamBufferHandlingMode_OldestFirst
+            )
+            self.cam.TLStream.StreamBufferCountMode.SetValue(
+                PySpin.StreamBufferCountMode_Manual
+            )
+            self.cam.TLStream.StreamBufferCountManual.SetValue(self.num_cam_buffers)
+
+            Gst.info(
+                f"Buffer Handling Mode: {self.cam.TLStream.StreamBufferHandlingMode.GetCurrentEntry().GetSymbolic()}"
+            )
+            Gst.info(
+                f"Buffer Count Mode: {self.cam.TLStream.StreamBufferCountMode.GetCurrentEntry().GetSymbolic()}"
+            )
+            Gst.info(
+                f"Buffer Count: {self.cam.TLStream.StreamBufferCountManual.GetValue()}"
+            )
+            Gst.info(
+                f"Max Buffer Count: {self.cam.TLStream.StreamBufferCountManual.GetMax()}"
+            )
+
+        except PySpin.SpinnakerException as ex:
+
+            Gst.error(f"Error: {ex}")
+            return False
+        return True
+
     # Camera helper function
     def apply_properties_to_cam(self) -> bool:
         Gst.info("Applying properties")
         try:
-            # Apply Properties
+            # Configure Camera Properties
             if self.auto_exposure:
                 self.cam.ExposureAuto.SetValue(PySpin.ExposureAuto_Continuous)
                 Gst.info(f"Auto Exposure: {self.cam.ExposureAuto.GetValue()}")
             else:
                 self.cam.ExposureAuto.SetValue(PySpin.ExposureAuto_Off)
-                Gst.info(f"Auto Exposure: {self.cam.ExposureAuto.GetValue()}")
                 self.cam.ExposureTime.SetValue(self.exposure_time)
-                Gst.info(f"Exposure time: {self.cam.ExposureTime.GetValue()}us")
+                Gst.info(f"Auto Exposure: {self.cam.ExposureAuto.GetValue()}")
+                Gst.info(f"Exposure Time: {self.cam.ExposureTime.GetValue()}us")
 
             if self.auto_gain:
                 self.cam.GainAuto.SetValue(PySpin.GainAuto_Continuous)
                 Gst.info(f"Auto Gain: {self.cam.GainAuto.GetValue()}")
             else:
                 self.cam.GainAuto.SetValue(PySpin.GainAuto_Off)
-                Gst.info(f"Auto Gain: {self.cam.GainAuto.GetValue()}")
                 self.cam.GainAuto.SetValue(self.gain)
+                Gst.info(f"Auto Gain: {self.cam.GainAuto.GetValue()}")
                 Gst.info(f"Gain: {self.cam.Gain.GetValue()}db")
 
         except PySpin.SpinnakerException as ex:
@@ -268,6 +311,9 @@ class PySpinSrc(GstBase.PushSrc):
             return False
 
         if not self.apply_properties_to_cam():
+            return False
+
+        if not self.apply_properties_to_transport_layer():
             return False
 
         try:
@@ -327,6 +373,8 @@ class PySpinSrc(GstBase.PushSrc):
             return self.auto_gain
         elif prop.name == "gain":
             return self.gain
+        elif prop.name == "num-buffers":
+            return self.num_cam_buffers
         elif prop.name == "serial":
             return self.serial
         else:
@@ -343,6 +391,8 @@ class PySpinSrc(GstBase.PushSrc):
             self.auto_gain = value
         elif prop.name == "gain":
             self.gain = value
+        elif prop.name == "num-buffers":
+            self.num_cam_buffers = value
         elif prop.name == "serial":
             self.serial = value
         else:
@@ -395,7 +445,7 @@ class PySpinSrc(GstBase.PushSrc):
         Gst.log(
             f"Sending buffer of size: {image.shape} "
             f"frame id: {spinnaker_image.GetFrameID()} "
-            f"timestamp offset: {buffer.pts}ns"
+            f"timestamp offset: {buffer.pts // MILLIESCONDS_PER_NANOSECOND}ms"
         )
         spinnaker_image.Release()
 
