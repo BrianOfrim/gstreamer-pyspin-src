@@ -26,13 +26,15 @@ DEFAULT_HEIGHT = 540
 DEFAULT_FRAME_RATE = 10
 
 
-DEFAULT_EXPOSURE_TIME = None
-DEFAULT_GAIN = None
+DEFAULT_EXPOSURE_TIME = -1
+DEFAULT_GAIN = -1
 DEFAULT_H_BINNING = 1
 DEFAULT_V_BINNING = 1
 DEFAULT_OFFSET_X = 0
 DEFAULT_OFFSET_Y = 0
 DEFAULT_NUM_BUFFERS = 10
+DEFAULT_SERIAL_NUMBER = None
+DEFAULT_LOAD_DEFAULT = True
 
 MILLIESCONDS_PER_NANOSECOND = 1000000
 TIMEOUT_MS = 2000
@@ -60,11 +62,11 @@ class PySpinSrc(GstBase.PushSrc):
 
     __gproperties__ = {
         "exposure-time": (
-            int,
+            float,
             "exposure time",
-            "Exposure time in microsecods (if not specified auto exposure is used)",
-            1,
-            GLib.MAXINT,
+            "Exposure time in microsecods (if not specified auto exposure is used)zz",
+            -1,
+            100000000.0,
             DEFAULT_EXPOSURE_TIME,
             GObject.ParamFlags.READWRITE,
         ),
@@ -72,7 +74,7 @@ class PySpinSrc(GstBase.PushSrc):
             float,
             "gain",
             "Gain in decibels (if not specified auto gain is used)",
-            0.0,
+            -1,
             100.0,
             DEFAULT_GAIN,
             GObject.ParamFlags.READWRITE,
@@ -119,14 +121,21 @@ class PySpinSrc(GstBase.PushSrc):
             "Number of buffers for Spinnaker to allocate for buffer handling",
             1,
             GLib.MAXINT,
-            DEFAULT_EXPOSURE_TIME,
+            DEFAULT_NUM_BUFFERS,
             GObject.ParamFlags.READWRITE,
         ),
         "serial": (
             str,
             "serial number",
             "The camera serial number",
-            None,
+            DEFAULT_SERIAL_NUMBER,
+            GObject.ParamFlags.READWRITE,
+        ),
+        "load-defaults": (
+            bool,
+            "load default user set",
+            "Apply properties on top of the default settings or on top of current settings",
+            DEFAULT_LOAD_DEFAULT,
             GObject.ParamFlags.READWRITE,
         ),
     }
@@ -139,14 +148,15 @@ class PySpinSrc(GstBase.PushSrc):
         self.info = GstVideo.VideoInfo()
 
         # Properties
-        self.exposure_time: int = DEFAULT_EXPOSURE_TIME
+        self.exposure_time: float = DEFAULT_EXPOSURE_TIME
         self.gain: float = DEFAULT_GAIN
         self.h_binning: int = DEFAULT_H_BINNING
         self.v_binning: int = DEFAULT_V_BINNING
         self.offset_x: int = DEFAULT_OFFSET_X
         self.offset_y: int = DEFAULT_OFFSET_Y
-        self.serial: str = None
         self.num_cam_buffers: int = DEFAULT_NUM_BUFFERS
+        self.serial: str = DEFAULT_SERIAL_NUMBER
+        self.load_defaults: bool = DEFAULT_LOAD_DEFAULT
 
         # Spinnaker objects
         self.system: PySpin.System = None
@@ -166,6 +176,7 @@ class PySpinSrc(GstBase.PushSrc):
         try:
             self.cam.UserSetSelector.SetValue(PySpin.UserSetSelector_Default)
             self.cam.UserSetLoad()
+            Gst.info("Default settings loaded")
         except PySpin.SpinnakerException as ex:
             Gst.error(f"Error: {ex}")
             return False
@@ -258,7 +269,6 @@ class PySpinSrc(GstBase.PushSrc):
         try:
             # Configure Camera Properties
 
-            # Apply binning before caps
             if self.h_binning > 1:
                 self.cam.BinningHorizontal.SetValue(self.h_binning)
                 self.cam.BinningHorizontalMode.SetValue(
@@ -273,25 +283,25 @@ class PySpinSrc(GstBase.PushSrc):
                 )
                 Gst.info(f"Vertical Binning: {self.cam.BinningVertical.GetValue()}")
 
-            if self.exposure_time is not None:
-                self.cam.ExposureAuto.SetValue(PySpin.ExposureAuto_Off)
-                self.cam.ExposureTime.SetValue(self.exposure_time)
-                Gst.info(f"Exposure Time: {self.cam.ExposureTime.GetValue()}us")
-            else:
+            if self.exposure_time < 0:
                 self.cam.ExposureAuto.SetValue(PySpin.ExposureAuto_Continuous)
                 Gst.info(
                     f"Auto Exposure: {self.cam.ExposureAuto.GetCurrentEntry().GetSymbolic()}"
                 )
-
-            if self.gain is not None:
-                self.cam.GainAuto.SetValue(PySpin.GainAuto_Off)
-                self.cam.GainAuto.SetValue(self.gain)
-                Gst.info(f"Gain: {self.cam.Gain.GetValue()}db")
             else:
+                self.cam.ExposureAuto.SetValue(PySpin.ExposureAuto_Off)
+                self.cam.ExposureTime.SetValue(self.exposure_time)
+                Gst.info(f"Exposure Time: {self.cam.ExposureTime.GetValue()}us")
+
+            if self.gain < 0:
                 self.cam.GainAuto.SetValue(PySpin.GainAuto_Continuous)
                 Gst.info(
                     f"Auto Gain: {self.cam.GainAuto.GetCurrentEntry().GetSymbolic()}"
                 )
+            else:
+                self.cam.GainAuto.SetValue(PySpin.GainAuto_Off)
+                self.cam.Gain.SetValue(self.gain)
+                Gst.info(f"Gain: {self.cam.Gain.GetValue()}db")
 
         except PySpin.SpinnakerException as ex:
             Gst.error(f"Error: {ex}")
@@ -355,7 +365,7 @@ class PySpinSrc(GstBase.PushSrc):
             except PySpin.SpinnakerException as ex:
                 Gst.info("Acquisition stopped to apply settings")
 
-            if not self.apply_default_settings():
+            if self.load_defaults and not self.apply_default_settings():
                 return False
 
             if not self.apply_properties_to_cam():
@@ -373,9 +383,11 @@ class PySpinSrc(GstBase.PushSrc):
     # Camera helper function
     def deinit_cam(self) -> bool:
         try:
-            self.cam.EndAcquisition()
-            Gst.info("Acquisition Ended")
-            self.cam.DeInit()
+            if self.cam.IsStreaming():
+                self.cam.EndAcquisition()
+                Gst.info("Acquisition Ended")
+            if self.cam.IsInitialized():
+                self.cam.DeInit()
             del self.cam
             self.cam_list.Clear()
             self.system.ReleaseInstance()
@@ -405,17 +417,16 @@ class PySpinSrc(GstBase.PushSrc):
             current_cam_width = DEFAULT_WIDTH
             current_cam_height = DEFAULT_HEIGHT
 
-        try:
-            frame_rate = self.cam.AcquisitionFrameRate.GetValue()
-        except PySpin.SpinnakerException as ex:
-            Gst.error(f"Error: {ex}")
-            # Error reading camera framerate, just use default values
-            frame_rate = DEFAULT_FRAME_RATE
+        # try:
+        #     frame_rate = self.cam.AcquisitionFrameRate.GetValue()
+        # except PySpin.SpinnakerException as ex:
+        #     Gst.error(f"Error: {ex}")
+        #     # Error reading camera framerate, just use default values
+        frame_rate = DEFAULT_FRAME_RATE
 
         structure = caps.get_structure(0).copy()
         structure.fixate_field_nearest_int("width", current_cam_width)
         structure.fixate_field_nearest_int("height", current_cam_height)
-        # structure.fixate_field_nearest_fraction("framerate", frame_rate + 0.5, 1)
         structure.fixate_field_nearest_fraction("framerate", frame_rate, 1)
 
         new_caps = Gst.Caps.new_empty()
@@ -440,6 +451,8 @@ class PySpinSrc(GstBase.PushSrc):
             return self.num_cam_buffers
         elif prop.name == "serial":
             return self.serial
+        elif prop.name == "load-defaults":
+            return self.load_defaults
         else:
             raise AttributeError("unknown property %s" % prop.name)
 
@@ -462,6 +475,8 @@ class PySpinSrc(GstBase.PushSrc):
             self.num_cam_buffers = value
         elif prop.name == "serial":
             self.serial = value
+        elif prop.name == "load-defaults":
+            self.load_defaults = value
         else:
             raise AttributeError("unknown property %s" % prop.name)
 
