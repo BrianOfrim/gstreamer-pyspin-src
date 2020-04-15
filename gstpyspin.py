@@ -25,12 +25,15 @@ DEFAULT_WIDTH = 720
 DEFAULT_HEIGHT = 540
 DEFAULT_FRAME_RATE = 10
 
-DEFAULT_H_BINNING = 1
-DEFAULT_V_BINNING = 1
+
 DEFAULT_AUTO_EXPOSURE = True
 DEFAULT_EXPOSURE_TIME = 15000
 DEFAULT_AUTO_GAIN = True
 DEFAULT_GAIN = 0.0
+DEFAULT_H_BINNING = 1
+DEFAULT_V_BINNING = 1
+DEFAULT_OFFSET_X = 0
+DEFAULT_OFFSET_Y = 0
 DEFAULT_NUM_BUFFERS = 10
 
 MILLIESCONDS_PER_NANOSECOND = 1000000
@@ -108,6 +111,24 @@ class PySpinSrc(GstBase.PushSrc):
             DEFAULT_V_BINNING,
             GObject.ParamFlags.READWRITE,
         ),
+        "offset-x": (
+            int,
+            "offset x",
+            "Horizontal offset for the region of interest",
+            0,
+            GLib.MAXINT,
+            DEFAULT_OFFSET_X,
+            GObject.ParamFlags.READWRITE,
+        ),
+        "offset-y": (
+            int,
+            "offset y",
+            "Vertical offset for the region of interest",
+            0,
+            GLib.MAXINT,
+            DEFAULT_OFFSET_Y,
+            GObject.ParamFlags.READWRITE,
+        ),
         "num-buffers": (
             int,
             "number of image buffers",
@@ -140,6 +161,8 @@ class PySpinSrc(GstBase.PushSrc):
         self.gain: float = DEFAULT_GAIN
         self.h_binning: int = DEFAULT_H_BINNING
         self.v_binning: int = DEFAULT_V_BINNING
+        self.offset_x: int = DEFAULT_OFFSET_X
+        self.offset_y: int = DEFAULT_OFFSET_Y
         self.serial: str = None
         self.num_cam_buffers: int = DEFAULT_NUM_BUFFERS
 
@@ -168,14 +191,28 @@ class PySpinSrc(GstBase.PushSrc):
         return True
 
     # Camera helper function
-    # ret val= Height: int, OffsetY: int, Width: int, OffsetX int
+    # ret val = Height: int, Width: int, OffsetY: int, OffsetX int
     def get_roi(self) -> (int, int, int, int):
         return (
             self.cam.Height.GetValue(),
-            self.cam.OffsetY.GetValue(),
             self.cam.Width.GetValue(),
+            self.cam.OffsetY.GetValue(),
             self.cam.OffsetX.GetValue(),
         )
+
+    def set_roi(self, height: int, width: int, offset_y: int = 0, offset_x: int = 0):
+
+        self.cam.Height.SetValue(height)
+        Gst.info(f"Height: {self.cam.Height.GetValue()}")
+
+        self.cam.Width.SetValue(width)
+        Gst.info(f"Width: {self.cam.Width.GetValue()}")
+
+        self.cam.OffsetY.SetValue(offset_y)
+        Gst.info(f"OffsetY: {self.cam.OffsetY.GetValue()}")
+
+        self.cam.OffsetX.SetValue(offset_x)
+        Gst.info(f"OffsetX: {self.cam.OffsetX.GetValue()}")
 
     # Camera helper function
     def apply_caps_to_cam(self) -> bool:
@@ -183,15 +220,13 @@ class PySpinSrc(GstBase.PushSrc):
         try:
 
             # Apply Caps
-            self.cam.Width.SetValue(self.info.width)
-            Gst.info(f"Width: {self.cam.Width.GetValue()}")
-
-            self.cam.Height.SetValue(self.info.height)
-            Gst.info(f"Height: {self.cam.Height.GetValue()}")
-
             self.cam.PixelFormat.SetValue(PySpin.PixelFormat_BGR8)
             Gst.info(
                 f"Pixel format: {self.cam.PixelFormat.GetCurrentEntry().GetSymbolic()}"
+            )
+
+            self.set_roi(
+                self.info.height, self.info.width, self.offset_y, self.offset_x
             )
 
             self.cam.AcquisitionFrameRateEnable.SetValue(True)
@@ -386,7 +421,7 @@ class PySpinSrc(GstBase.PushSrc):
         Gst.info("Fixating caps")
 
         try:
-            current_cam_height, _, current_cam_width, _ = self.get_roi()
+            current_cam_height, current_cam_width, _, _ = self.get_roi()
         except PySpin.SpinnakerException as ex:
             Gst.error(f"Error: {ex}")
             # Error reading camera roi settings, just use default values
@@ -424,6 +459,10 @@ class PySpinSrc(GstBase.PushSrc):
             return self.h_binning
         elif prop.name == "v-binning":
             return self.v_binning
+        elif prop.name == "offset-x":
+            return self.offset_x
+        elif prop.name == "offset-y":
+            return self.offset_y
         elif prop.name == "num-buffers":
             return self.num_cam_buffers
         elif prop.name == "serial":
@@ -446,6 +485,10 @@ class PySpinSrc(GstBase.PushSrc):
             self.h_binning = value
         elif prop.name == "v-binning":
             self.v_binning = value
+        elif prop.name == "offset-x":
+            self.offset_x = value
+        elif prop.name == "offset-y":
+            self.offset_y = value
         elif prop.name == "num-buffers":
             self.num_cam_buffers = value
         elif prop.name == "serial":
