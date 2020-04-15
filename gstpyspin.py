@@ -34,6 +34,7 @@ DEFAULT_GAIN = 0.0
 DEFAULT_NUM_BUFFERS = 10
 
 MILLIESCONDS_PER_NANOSECOND = 1000000
+TIMEOUT_MS = 2000
 
 OCAPS = Gst.Caps(
     Gst.Structure(
@@ -384,12 +385,16 @@ class PySpinSrc(GstBase.PushSrc):
         Gst.info("Fixating caps")
 
         try:
-            height, _, width, _ = self.get_roi()
+            current_cam_height, _, current_cam_width, _ = self.get_roi()
+            if self.v_binning > 1:
+                current_cam_height = int(current_cam_height / self.v_binning)
+            if self.h_binning > 1:
+                current_cam_width = int(current_cam_width / self.h_binning)
         except PySpin.SpinnakerException as ex:
             Gst.error(f"Error: {ex}")
             # Error reading camera roi settings, just use default values
-            width = DEFAULT_WIDTH
-            height = DEFAULT_HEIGHT
+            current_cam_width = DEFAULT_WIDTH
+            current_cam_height = DEFAULT_HEIGHT
 
         try:
             frame_rate = self.cam.AcquisitionFrameRate.GetValue()
@@ -399,8 +404,8 @@ class PySpinSrc(GstBase.PushSrc):
             frame_rate = DEFAULT_FRAME_RATE
 
         structure = caps.get_structure(0).copy()
-        structure.fixate_field_nearest_int("width", width)
-        structure.fixate_field_nearest_int("height", height)
+        structure.fixate_field_nearest_int("width", current_cam_width)
+        structure.fixate_field_nearest_int("height", current_cam_height)
         # structure.fixate_field_nearest_fraction("framerate", frame_rate + 0.5, 1)
         structure.fixate_field_nearest_fraction("framerate", frame_rate, 1)
 
@@ -481,10 +486,27 @@ class PySpinSrc(GstBase.PushSrc):
     # GST function
     def do_gst_push_src_fill(self, buffer: Gst.Buffer) -> Gst.FlowReturn:
 
-        spinnaker_image = self.cam.GetNextImage()
-        image_timestamp = spinnaker_image.GetTimeStamp()
+        spinnaker_image = None
+
+        while spinnaker_image is None or spinnaker_image.IsIncomplete():
+
+            # Grab a buffered image from the camera
+            try:
+                spinnaker_image = self.cam.GetNextImage(TIMEOUT_MS)
+            except PySpin.SpinnakerException as ex:
+                Gst.error(f"Error: {ex}")
+                return Gst.FlowReturn.ERROR
+
+            if spinnaker_image.IsIncomplete():
+                Gst.warning(
+                    f"Image incomplete with image status {image_result.GetImageStatus()}"
+                )
+                spinnaker_image.Release()
+
         image = gst_buffer_with_pad_to_ndarray(buffer, self.srcpad)
         image[:] = spinnaker_image.GetNDArray()
+
+        image_timestamp = spinnaker_image.GetTimeStamp()
 
         if self.timestamp_offset == 0:
             self.timestamp_offset = image_timestamp
