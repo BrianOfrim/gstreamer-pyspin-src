@@ -134,24 +134,23 @@ class PySpinSrc(GstBase.PushSrc):
         self.info = GstVideo.VideoInfo()
 
         # Properties
-        self.auto_exposure = DEFAULT_AUTO_EXPOSURE
-        self.exposure_time = DEFAULT_EXPOSURE_TIME
-        self.auto_gain = DEFAULT_AUTO_GAIN
-        self.gain = DEFAULT_GAIN
-        self.h_binning = DEFAULT_H_BINNING
-        self.v_binning = DEFAULT_V_BINNING
-        self.serial = None
-
-        self.num_cam_buffers = DEFAULT_NUM_BUFFERS
+        self.auto_exposure: bool = DEFAULT_AUTO_EXPOSURE
+        self.exposure_time: int = DEFAULT_EXPOSURE_TIME
+        self.auto_gain: bool = DEFAULT_AUTO_GAIN
+        self.gain: float = DEFAULT_GAIN
+        self.h_binning: int = DEFAULT_H_BINNING
+        self.v_binning: int = DEFAULT_V_BINNING
+        self.serial: str = None
+        self.num_cam_buffers: int = DEFAULT_NUM_BUFFERS
 
         # Spinnaker objects
-        self.system = None
-        self.cam_list = None
-        self.cam = None
+        self.system: PySpin.System = None
+        self.cam_list: PySpin.CameraList = None
+        self.cam: PySpin.Camera = None
 
         # Buffer timing
-        self.timestamp_offset = 0
-        self.previous_timestamp = 0
+        self.timestamp_offset: long = 0
+        self.previous_timestamp: long = 0
 
         # Base class proprties
         self.set_live(True)
@@ -179,87 +178,9 @@ class PySpinSrc(GstBase.PushSrc):
         )
 
     # Camera helper function
-    def init_cam(self) -> bool:
-        try:
-            self.system = PySpin.System.GetInstance()
-            self.cam_list = self.system.GetCameras()
-            # Finish if there are no cameras
-            if self.cam_list.GetSize() == 0:
-                self.cam_list.Clear()
-                self.system.ReleaseInstance()
-                Gst.error("No cameras detected")
-                return False
-
-            if self.serial is None:
-                # No serial provided retrieve the first available camera
-                self.cam = self.cam_list.GetByIndex(0)
-                Gst.info(
-                    f"No serial number provided"
-                    f"Using camera: {self.cam.TLDevice.DeviceSerialNumber.GetValue()}"
-                )
-            else:
-                self.cam = self.cam_list.GetBySerial(self.serial)
-                Gst.info(
-                    f"Using camera: {self.cam.TLDevice.DeviceSerialNumber.GetValue()}"
-                )
-
-            if not self.cam or self.cam is None:
-                Gst.error("Could not retrieve camera from camera list.")
-                self.cam_list.Clear()
-                self.system.ReleaseInstance()
-                return False
-
-            self.cam.Init()
-
-            # Ensure that acquisition is stopped before applying settings
-            try:
-                self.cam.AcquisitionStop()
-            except PySpin.SpinnakerException as ex:
-                Gst.info("Acquisition stopped to apply settings")
-
-            if not self.apply_default_settings():
-                return False
-
-        except PySpin.SpinnakerException as ex:
-            Gst.error(f"Error: {ex}")
-            return False
-
-        return True
-
-    # Camera helper function
-    def deinit_cam(self):
-        try:
-            self.cam.EndAcquisition()
-            Gst.info("Acquisition Ended")
-            self.cam.DeInit()
-            del self.cam
-            self.cam_list.Clear()
-            self.system.ReleaseInstance()
-
-        except PySpin.SpinnakerException as ex:
-            Gst.error(f"Error: {ex}")
-            return False
-
-        return True
-
-    # Camera helper function
     def apply_caps_to_cam(self) -> bool:
         Gst.info("Applying caps.")
         try:
-            # Apply binning before caps
-            if self.h_binning > 1:
-                self.cam.BinningHorizontal.SetValue(self.h_binning)
-                self.cam.BinningHorizontalMode.SetValue(
-                    PySpin.BinningHorizontalMode_Average
-                )
-                Gst.info(f"Horizontal Binning: {self.cam.BinningHorizontal.GetValue()}")
-
-            if self.v_binning > 1:
-                self.cam.BinningVertical.SetValue(self.v_binning)
-                self.cam.BinningVerticalMode.SetValue(
-                    PySpin.BinningVerticalMode_Average
-                )
-                Gst.info(f"Vertical Binning: {self.cam.BinningVertical.GetValue()}")
 
             # Apply Caps
             self.cam.Width.SetValue(self.info.width)
@@ -318,6 +239,22 @@ class PySpinSrc(GstBase.PushSrc):
         Gst.info("Applying properties")
         try:
             # Configure Camera Properties
+
+            # Apply binning before caps
+            if self.h_binning > 1:
+                self.cam.BinningHorizontal.SetValue(self.h_binning)
+                self.cam.BinningHorizontalMode.SetValue(
+                    PySpin.BinningHorizontalMode_Average
+                )
+                Gst.info(f"Horizontal Binning: {self.cam.BinningHorizontal.GetValue()}")
+
+            if self.v_binning > 1:
+                self.cam.BinningVertical.SetValue(self.v_binning)
+                self.cam.BinningVerticalMode.SetValue(
+                    PySpin.BinningVerticalMode_Average
+                )
+                Gst.info(f"Vertical Binning: {self.cam.BinningVertical.GetValue()}")
+
             if self.auto_exposure:
                 self.cam.ExposureAuto.SetValue(PySpin.ExposureAuto_Continuous)
                 Gst.info(
@@ -356,12 +293,6 @@ class PySpinSrc(GstBase.PushSrc):
         if not self.apply_caps_to_cam():
             return False
 
-        if not self.apply_properties_to_cam():
-            return False
-
-        if not self.apply_properties_to_transport_layer():
-            return False
-
         try:
             self.cam.AcquisitionMode.SetValue(PySpin.AcquisitionMode_Continuous)
             self.cam.BeginAcquisition()
@@ -370,6 +301,76 @@ class PySpinSrc(GstBase.PushSrc):
             return False
 
         Gst.info("Acquisition Started")
+
+        return True
+
+    # Camera helper function
+    def init_cam(self) -> bool:
+        try:
+            self.system = PySpin.System.GetInstance()
+            self.cam_list = self.system.GetCameras()
+            # Finish if there are no cameras
+            if self.cam_list.GetSize() == 0:
+                self.cam_list.Clear()
+                self.system.ReleaseInstance()
+                Gst.error("No cameras detected")
+                return False
+
+            if self.serial is None:
+                # No serial provided retrieve the first available camera
+                self.cam = self.cam_list.GetByIndex(0)
+                Gst.info(
+                    f"No serial number provided"
+                    f"Using camera: {self.cam.TLDevice.DeviceSerialNumber.GetValue()}"
+                )
+            else:
+                self.cam = self.cam_list.GetBySerial(self.serial)
+                Gst.info(
+                    f"Using camera: {self.cam.TLDevice.DeviceSerialNumber.GetValue()}"
+                )
+
+            if not self.cam or self.cam is None:
+                Gst.error("Could not retrieve camera from camera list.")
+                self.cam_list.Clear()
+                self.system.ReleaseInstance()
+                return False
+
+            self.cam.Init()
+
+            # Ensure that acquisition is stopped before applying settings
+            try:
+                self.cam.AcquisitionStop()
+            except PySpin.SpinnakerException as ex:
+                Gst.info("Acquisition stopped to apply settings")
+
+            if not self.apply_default_settings():
+                return False
+
+            if not self.apply_properties_to_cam():
+                return False
+
+            if not self.apply_properties_to_transport_layer():
+                return False
+
+        except PySpin.SpinnakerException as ex:
+            Gst.error(f"Error: {ex}")
+            return False
+
+        return True
+
+    # Camera helper function
+    def deinit_cam(self) -> bool:
+        try:
+            self.cam.EndAcquisition()
+            Gst.info("Acquisition Ended")
+            self.cam.DeInit()
+            del self.cam
+            self.cam_list.Clear()
+            self.system.ReleaseInstance()
+
+        except PySpin.SpinnakerException as ex:
+            Gst.error(f"Error: {ex}")
+            return False
 
         return True
 
@@ -386,10 +387,6 @@ class PySpinSrc(GstBase.PushSrc):
 
         try:
             current_cam_height, _, current_cam_width, _ = self.get_roi()
-            if self.v_binning > 1:
-                current_cam_height = int(current_cam_height / self.v_binning)
-            if self.h_binning > 1:
-                current_cam_width = int(current_cam_width / self.h_binning)
         except PySpin.SpinnakerException as ex:
             Gst.error(f"Error: {ex}")
             # Error reading camera roi settings, just use default values
@@ -436,7 +433,7 @@ class PySpinSrc(GstBase.PushSrc):
 
     # GST function
     def do_set_property(self, prop: GObject.GParamSpec, value):
-        print("Setting propery")
+        Gst.info(f"Setting {prop.name} = {value}")
         if prop.name == "exposure-auto":
             self.auto_exposure = value
         elif prop.name == "exposure-time":
