@@ -26,10 +26,8 @@ DEFAULT_HEIGHT = 540
 DEFAULT_FRAME_RATE = 10
 
 
-DEFAULT_AUTO_EXPOSURE = True
-DEFAULT_EXPOSURE_TIME = 15000
-DEFAULT_AUTO_GAIN = True
-DEFAULT_GAIN = 0.0
+DEFAULT_EXPOSURE_TIME = None
+DEFAULT_GAIN = None
 DEFAULT_H_BINNING = 1
 DEFAULT_V_BINNING = 1
 DEFAULT_OFFSET_X = 0
@@ -61,33 +59,19 @@ class PySpinSrc(GstBase.PushSrc):
     )
 
     __gproperties__ = {
-        "exposure-auto": (
-            bool,
-            "automatic exposure",
-            "Enabling automatic exposure timing",
-            DEFAULT_AUTO_EXPOSURE,
-            GObject.ParamFlags.READWRITE,
-        ),
         "exposure-time": (
             int,
             "exposure time",
-            "Exposure time in microsecods",
+            "Exposure time in microsecods (if not specified auto exposure is used)",
             1,
             GLib.MAXINT,
             DEFAULT_EXPOSURE_TIME,
             GObject.ParamFlags.READWRITE,
         ),
-        "gain-auto": (
-            bool,
-            "automatic gain",
-            "Enabling automatic gain",
-            DEFAULT_AUTO_GAIN,
-            GObject.ParamFlags.READWRITE,
-        ),
         "gain": (
             float,
             "gain",
-            "Gain in decibels",
+            "Gain in decibels (if not specified auto gain is used)",
             0.0,
             100.0,
             DEFAULT_GAIN,
@@ -155,9 +139,7 @@ class PySpinSrc(GstBase.PushSrc):
         self.info = GstVideo.VideoInfo()
 
         # Properties
-        self.auto_exposure: bool = DEFAULT_AUTO_EXPOSURE
         self.exposure_time: int = DEFAULT_EXPOSURE_TIME
-        self.auto_gain: bool = DEFAULT_AUTO_GAIN
         self.gain: float = DEFAULT_GAIN
         self.h_binning: int = DEFAULT_H_BINNING
         self.v_binning: int = DEFAULT_V_BINNING
@@ -200,6 +182,7 @@ class PySpinSrc(GstBase.PushSrc):
             self.cam.OffsetX.GetValue(),
         )
 
+    # Camera helper function
     def set_roi(self, height: int, width: int, offset_y: int = 0, offset_x: int = 0):
 
         self.cam.Height.SetValue(height)
@@ -290,31 +273,25 @@ class PySpinSrc(GstBase.PushSrc):
                 )
                 Gst.info(f"Vertical Binning: {self.cam.BinningVertical.GetValue()}")
 
-            if self.auto_exposure:
+            if self.exposure_time is not None:
+                self.cam.ExposureAuto.SetValue(PySpin.ExposureAuto_Off)
+                self.cam.ExposureTime.SetValue(self.exposure_time)
+                Gst.info(f"Exposure Time: {self.cam.ExposureTime.GetValue()}us")
+            else:
                 self.cam.ExposureAuto.SetValue(PySpin.ExposureAuto_Continuous)
                 Gst.info(
                     f"Auto Exposure: {self.cam.ExposureAuto.GetCurrentEntry().GetSymbolic()}"
                 )
-            else:
-                self.cam.ExposureAuto.SetValue(PySpin.ExposureAuto_Off)
-                self.cam.ExposureTime.SetValue(self.exposure_time)
-                Gst.info(
-                    f"Auto Exposure: {self.cam.ExposureAuto.GetCurrentEntry().GetSymbolic()}"
-                )
-                Gst.info(f"Exposure Time: {self.cam.ExposureTime.GetValue()}us")
 
-            if self.auto_gain:
+            if self.gain is not None:
+                self.cam.GainAuto.SetValue(PySpin.GainAuto_Off)
+                self.cam.GainAuto.SetValue(self.gain)
+                Gst.info(f"Gain: {self.cam.Gain.GetValue()}db")
+            else:
                 self.cam.GainAuto.SetValue(PySpin.GainAuto_Continuous)
                 Gst.info(
                     f"Auto Gain: {self.cam.GainAuto.GetCurrentEntry().GetSymbolic()}"
                 )
-            else:
-                self.cam.GainAuto.SetValue(PySpin.GainAuto_Off)
-                self.cam.GainAuto.SetValue(self.gain)
-                Gst.info(
-                    f"Auto Gain: {self.cam.GainAuto.GetCurrentEntry().GetSymbolic()}"
-                )
-                Gst.info(f"Gain: {self.cam.Gain.GetValue()}db")
 
         except PySpin.SpinnakerException as ex:
             Gst.error(f"Error: {ex}")
@@ -447,12 +424,8 @@ class PySpinSrc(GstBase.PushSrc):
 
     # GST function
     def do_get_property(self, prop: GObject.GParamSpec):
-        if prop.name == "exposure-auto":
-            return self.auto_exposure
-        elif prop.name == "exposure-time":
+        if prop.name == "exposure-time":
             return self.exposure_time
-        if prop.name == "gain-auto":
-            return self.auto_gain
         elif prop.name == "gain":
             return self.gain
         elif prop.name == "h-binning":
@@ -473,12 +446,8 @@ class PySpinSrc(GstBase.PushSrc):
     # GST function
     def do_set_property(self, prop: GObject.GParamSpec, value):
         Gst.info(f"Setting {prop.name} = {value}")
-        if prop.name == "exposure-auto":
-            self.auto_exposure = value
-        elif prop.name == "exposure-time":
+        if prop.name == "exposure-time":
             self.exposure_time = value
-        elif prop.name == "gain-auto":
-            self.auto_gain = value
         elif prop.name == "gain":
             self.gain = value
         elif prop.name == "h-binning":
