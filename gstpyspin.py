@@ -115,7 +115,7 @@ class PySpinSrc(GstBase.PushSrc):
             DEFAULT_OFFSET_Y,
             GObject.ParamFlags.READWRITE,
         ),
-        "num-buffers": (
+        "num-image-buffers": (
             int,
             "number of image buffers",
             "Number of buffers for Spinnaker to allocate for buffer handling",
@@ -447,7 +447,7 @@ class PySpinSrc(GstBase.PushSrc):
             return self.offset_x
         elif prop.name == "offset-y":
             return self.offset_y
-        elif prop.name == "num-buffers":
+        elif prop.name == "num-image-buffers":
             return self.num_cam_buffers
         elif prop.name == "serial":
             return self.serial
@@ -471,7 +471,7 @@ class PySpinSrc(GstBase.PushSrc):
             self.offset_x = value
         elif prop.name == "offset-y":
             self.offset_y = value
-        elif prop.name == "num-buffers":
+        elif prop.name == "num-image-buffers":
             self.num_cam_buffers = value
         elif prop.name == "serial":
             self.serial = value
