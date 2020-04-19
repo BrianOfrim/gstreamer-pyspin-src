@@ -1,9 +1,11 @@
+from dataclasses import dataclass
+from typing import List
+
 import gi
 
 gi.require_version("Gst", "1.0")
 gi.require_version("GstBase", "1.0")
 gi.require_version("GObject", "2.0")
-
 
 from gi.repository import Gst, GObject, GLib, GstBase, GstVideo
 
@@ -21,11 +23,6 @@ except ImportError:
     Gst.error("pyspinsrc requires PySpin")
     raise
 
-DEFAULT_WIDTH = 720
-DEFAULT_HEIGHT = 540
-DEFAULT_FRAME_RATE = 10
-
-
 DEFAULT_EXPOSURE_TIME = -1
 DEFAULT_GAIN = -1
 DEFAULT_H_BINNING = 1
@@ -39,15 +36,29 @@ DEFAULT_LOAD_DEFAULT = True
 MILLIESCONDS_PER_NANOSECOND = 1000000
 TIMEOUT_MS = 2000
 
-OCAPS = Gst.Caps(
-    Gst.Structure(
-        "video/x-raw",
-        format="BGR",
-        width=Gst.IntRange(range(1, GLib.MAXINT)),
-        height=Gst.IntRange(range(1, GLib.MAXINT)),
-        framerate=Gst.FractionRange(Gst.Fraction(1, 1), Gst.Fraction(GLib.MAXINT, 1)),
-    )
-)
+
+@dataclass
+class PixelFormatType:
+    cap_type: str
+    gst: str
+    genicam: str
+
+
+RAW_CAP_TYPE = "video/x-raw"
+BAYER_CAP_TYPE = "video/x-bayer"
+
+SUPPORTED_PIXEL_FORMATS = [
+    PixelFormatType(cap_type=RAW_CAP_TYPE, gst="GRAY8", genicam="Mono8"),
+    PixelFormatType(cap_type=RAW_CAP_TYPE, gst="GRAY16_LE", genicam="Mono16"),
+    PixelFormatType(cap_type=RAW_CAP_TYPE, gst="UYVY", genicam="YUV422Packed"),
+    PixelFormatType(cap_type=RAW_CAP_TYPE, gst="YUY2", genicam="YCbCr422_8"),
+    PixelFormatType(cap_type=RAW_CAP_TYPE, gst="RGB", genicam="RGB8"),
+    PixelFormatType(cap_type=RAW_CAP_TYPE, gst="BGR", genicam="BGR8"),
+    PixelFormatType(cap_type=BAYER_CAP_TYPE, gst="rggb", genicam="BayerRG8"),
+    PixelFormatType(cap_type=BAYER_CAP_TYPE, gst="gbrg", genicam="BayerGB8"),
+    PixelFormatType(cap_type=BAYER_CAP_TYPE, gst="bggr", genicam="BayerBG8"),
+    PixelFormatType(cap_type=BAYER_CAP_TYPE, gst="grbg", genicam="BayerGR8"),
+]
 
 
 class PySpinSrc(GstBase.PushSrc):
@@ -57,7 +68,7 @@ class PySpinSrc(GstBase.PushSrc):
     __gstmetadata__ = ("pyspinsrc", "Src", "PySpin src element", "Brian Ofrim")
 
     __gsttemplates__ = Gst.PadTemplate.new(
-        "src", Gst.PadDirection.SRC, Gst.PadPresence.ALWAYS, OCAPS,
+        "src", Gst.PadDirection.SRC, Gst.PadPresence.ALWAYS, Gst.Caps.new_any(),
     )
 
     __gproperties__ = {
@@ -158,6 +169,8 @@ class PySpinSrc(GstBase.PushSrc):
         self.serial: str = DEFAULT_SERIAL_NUMBER
         self.load_defaults: bool = DEFAULT_LOAD_DEFAULT
 
+        self.camera_caps = None
+
         # Spinnaker objects
         self.system: PySpin.System = None
         self.cam_list: PySpin.CameraList = None
@@ -208,13 +221,35 @@ class PySpinSrc(GstBase.PushSrc):
         self.cam.OffsetX.SetValue(offset_x)
         Gst.info(f"OffsetX: {self.cam.OffsetX.GetValue()}")
 
+    def get_format_type_from_genicam(self, genicam_format: str) -> PixelFormatType:
+        return next(
+            (
+                f
+                for f in SUPPORTED_PIXEL_FORMATS
+                if f.genicam.lower() == genicam_format.lower()
+            ),
+            None,
+        )
+
+    def get_format_type_from_gst(self, gst_format: str) -> PixelFormatType:
+        return next(
+            (f for f in SUPPORTED_PIXEL_FORMATS if f.gst.lower() == gst_format.lower()),
+            None,
+        )
+
     # Camera helper function
     def apply_caps_to_cam(self) -> bool:
         Gst.info("Applying caps.")
         try:
 
             # Apply Caps
-            self.cam.PixelFormat.SetValue(PySpin.PixelFormat_BGR8)
+
+            self.cam.PixelFormat.SetIntValue(
+                self.cam.PixelFormat.GetEntryByName(
+                    self.get_format_type_from_gst(self.info.finfo.name).genicam
+                ).GetValue()
+            )
+
             Gst.info(
                 f"Pixel format: {self.cam.PixelFormat.GetCurrentEntry().GetSymbolic()}"
             )
@@ -268,7 +303,6 @@ class PySpinSrc(GstBase.PushSrc):
         Gst.info("Applying properties")
         try:
             # Configure Camera Properties
-
             if self.h_binning > 1:
                 self.cam.BinningHorizontal.SetValue(self.h_binning)
                 self.cam.BinningHorizontalMode.SetValue(
@@ -308,6 +342,63 @@ class PySpinSrc(GstBase.PushSrc):
             return False
 
         return True
+
+    def get_camera_caps(self) -> Gst.Caps:
+
+        # Get current pixel format
+        starting_pixel_format_name = (
+            self.cam.PixelFormat.GetCurrentEntry().GetDisplayName()
+        )
+
+        # Get Pixel Formats
+        supported_pixel_formats = [
+            self.get_format_type_from_genicam(pf.GetDisplayName())
+            for pf in self.cam.PixelFormat.GetEntries()
+            if PySpin.IsAvailable(pf)
+            and self.get_format_type_from_genicam(pf.GetDisplayName()) is not None
+        ]
+
+        camera_caps = Gst.Caps.new_empty()
+
+        for pixel_format_type in supported_pixel_formats:
+
+            # set the pixel format
+            self.cam.PixelFormat.SetIntValue(
+                self.cam.PixelFormat.GetEntryByName(
+                    pixel_format_type.genicam
+                ).GetValue()
+            )
+
+            fr_min_num, fr_min_den = Gst.util_double_to_fraction(
+                self.cam.AcquisitionFrameRate.GetMin()
+            )
+            fr_max_num, fr_max_den = Gst.util_double_to_fraction(
+                self.cam.AcquisitionFrameRate.GetMax()
+            )
+
+            camera_caps.append_structure(
+                Gst.Structure(
+                    pixel_format_type.cap_type,
+                    format=pixel_format_type.gst,
+                    width=Gst.IntRange(
+                        range(self.cam.Width.GetMin(), self.cam.Width.GetMax())
+                    ),
+                    height=Gst.IntRange(
+                        range(self.cam.Height.GetMin(), self.cam.Height.GetMax())
+                    ),
+                    framerate=Gst.FractionRange(
+                        Gst.Fraction(fr_min_num, fr_min_den),
+                        Gst.Fraction(fr_max_num, fr_max_den),
+                    ),
+                )
+            )
+
+        # Set the pixel format back to the starting format
+        self.cam.PixelFormat.SetIntValue(
+            self.cam.PixelFormat.GetEntryByName(starting_pixel_format_name).GetValue()
+        )
+
+        return camera_caps
 
     # Camera helper function
     def start_streaming(self) -> bool:
@@ -400,34 +491,36 @@ class PySpinSrc(GstBase.PushSrc):
 
     # GST function
     def do_set_caps(self, caps: Gst.Caps) -> bool:
+        Gst.info("Setting caps")
         self.info.from_caps(caps)
         self.set_blocksize(self.info.size)
-
         return self.start_streaming()
+
+    def do_get_caps(self, filter: Gst.Caps) -> Gst.Caps:
+        Gst.info("Get Caps")
+        caps = None
+
+        if self.camera_caps is not None:
+            caps = Gst.Caps.copy(self.camera_caps)
+        else:
+            caps = Gst.Caps.new_any()
+
+        Gst.info(f"Avaliable caps: {caps.to_string()}")
+        return caps
 
     # GST function
     def do_fixate(self, caps: Gst.Caps):
         Gst.info("Fixating caps")
 
-        try:
-            current_cam_height, current_cam_width, _, _ = self.get_roi()
-        except PySpin.SpinnakerException as ex:
-            Gst.error(f"Error: {ex}")
-            # Error reading camera roi settings, just use default values
-            current_cam_width = DEFAULT_WIDTH
-            current_cam_height = DEFAULT_HEIGHT
-
-        # try:
-        #     frame_rate = self.cam.AcquisitionFrameRate.GetValue()
-        # except PySpin.SpinnakerException as ex:
-        #     Gst.error(f"Error: {ex}")
-        #     # Error reading camera framerate, just use default values
-        frame_rate = DEFAULT_FRAME_RATE
+        current_cam_height, current_cam_width, _, _ = self.get_roi()
+        frame_rate = self.cam.AcquisitionFrameRate.GetValue()
 
         structure = caps.get_structure(0).copy()
+
         structure.fixate_field_nearest_int("width", current_cam_width)
         structure.fixate_field_nearest_int("height", current_cam_height)
         structure.fixate_field_nearest_fraction("framerate", frame_rate, 1)
+        # structure.fixate_field_string("format", )
 
         new_caps = Gst.Caps.new_empty()
         new_caps.append_structure(structure)
@@ -483,7 +576,12 @@ class PySpinSrc(GstBase.PushSrc):
     # GST function
     def do_start(self):
         Gst.info("Starting")
-        return self.init_cam()
+        if not self.init_cam():
+            return False
+
+        self.camera_caps = self.get_camera_caps()
+
+        return True
 
     # GST function
     def do_stop(self):
@@ -523,12 +621,17 @@ class PySpinSrc(GstBase.PushSrc):
 
             if spinnaker_image.IsIncomplete():
                 Gst.warning(
-                    f"Image incomplete with image status {image_result.GetImageStatus()}"
+                    f"Image incomplete with image status {spinnaker_image.GetImageStatus()}"
                 )
                 spinnaker_image.Release()
 
-        image = gst_buffer_with_pad_to_ndarray(buffer, self.srcpad)
-        image[:] = spinnaker_image.GetNDArray()
+        image_buffer = gst_buffer_with_pad_to_ndarray(buffer, self.srcpad)
+
+        image_array = spinnaker_image.GetNDArray()
+
+        image_buffer[:] = (
+            image_array if image_array.ndim > 2 else np.expand_dims(image_array, axis=2)
+        )
 
         image_timestamp = spinnaker_image.GetTimeStamp()
 
@@ -542,7 +645,7 @@ class PySpinSrc(GstBase.PushSrc):
         self.previous_timestamp = image_timestamp
 
         Gst.log(
-            f"Sending buffer of size: {image.shape} "
+            f"Sending buffer of size: {image_buffer.shape} "
             f"frame id: {spinnaker_image.GetFrameID()} "
             f"timestamp offset: {buffer.pts // MILLIESCONDS_PER_NANOSECOND}ms"
         )
