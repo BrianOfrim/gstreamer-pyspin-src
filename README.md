@@ -37,8 +37,8 @@ View plug-in info and properties:
 
 ## References
 
-Uses the following for gst buffer to numpy mapping utilities and to install [gst-python](https://github.com/GStreamer/gst-python):
+Uses the following for gst buffer to numpy mapping utilities and to install [gst-python](https://github.com/GStreamer/gst-python):  
 https://github.com/jackersson/gstreamer-python
 
-Project based on:
+Project based on:  
 https://github.com/jackersson/gst-python-plugins
