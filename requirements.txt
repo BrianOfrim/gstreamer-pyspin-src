@@ -1,0 +1,4 @@
+dataclasses
+numpy
+opencv_python
+gstreamer-python @ git+https://github.com/jackersson/gstreamer-python.git#egg=gstreamer-python
