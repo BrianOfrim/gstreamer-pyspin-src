@@ -32,6 +32,10 @@ Clone this repo and install dependencies:
     pip install -r requirements.txt
     pip install <path-to-pyspin-package>\spinnaker_python-2.x.x.x-cp36-cp36m-linux_x86_64.whl
 
+Verify that hte installation was successful and view plug-in info and properties:
+
+    gst-inspect-1.0 pyspinsrc
+
 ## Usage
 
 Tell GStreamer where our plugin is located:
@@ -46,9 +50,7 @@ Example pileline:
 
     gst-launch-1.0 pyspinsrc ! videoconvert  ! autovideosink
 
-View plug-in info and properties:
 
-    gst-inspect-1.0 pyspinsrc
 
 ## References
 
