@@ -4,9 +4,11 @@ A GStreamer source plug in for the PySpin Image Acquisition SDK
 
 ## Install
 
-Download the latest version of **Spinnaker** and the matching version of **PySpin** (spinnaker-python) from:
+Download the latest version of **Spinnaker** and the matching version of **PySpin** (spinnaker-python) from:  
 https://flir.app.box.com/v/SpinnakerSDK/
 
+Clone this repo and install dependencies: 
+ 
     git clone https://github.com/BrianOfrim/gstreamer-pyspin-src.git
     cd gstreamer-pyspin-src
 

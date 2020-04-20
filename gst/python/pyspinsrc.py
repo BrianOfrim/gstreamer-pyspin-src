@@ -6,7 +6,7 @@ import gi
 gi.require_version("Gst", "1.0")
 gi.require_version("GstBase", "1.0")
 gi.require_version("GObject", "2.0")
-gi.require_version('GstVideo', '1.0') 
+gi.require_version("GstVideo", "1.0")
 
 from gi.repository import Gst, GObject, GLib, GstBase, GstVideo
 
@@ -48,9 +48,10 @@ class PixelFormatType:
 RAW_CAP_TYPE = "video/x-raw"
 BAYER_CAP_TYPE = "video/x-bayer"
 
+
 SUPPORTED_PIXEL_FORMATS = [
     PixelFormatType(cap_type=RAW_CAP_TYPE, gst="GRAY8", genicam="Mono8"),
-    PixelFormatType(cap_type=RAW_CAP_TYPE, gst="GRAY16_LE", genicam="Mono16"),
+    #    PixelFormatType(cap_type=RAW_CAP_TYPE, gst="GRAY16_LE", genicam="Mono16"),
     PixelFormatType(cap_type=RAW_CAP_TYPE, gst="UYVY", genicam="YUV422Packed"),
     PixelFormatType(cap_type=RAW_CAP_TYPE, gst="YUY2", genicam="YCbCr422_8"),
     PixelFormatType(cap_type=RAW_CAP_TYPE, gst="RGB", genicam="RGB8"),
