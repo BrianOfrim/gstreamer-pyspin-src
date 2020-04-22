@@ -26,6 +26,8 @@ except ImportError:
 
 DEFAULT_EXPOSURE_TIME = -1
 DEFAULT_GAIN = -1
+DEFAULT_WB_BLUE = -1
+DEFAULT_WB_RED = -1
 DEFAULT_H_BINNING = 1
 DEFAULT_V_BINNING = 1
 DEFAULT_OFFSET_X = 0
@@ -90,6 +92,24 @@ class PySpinSrc(GstBase.PushSrc):
             -1,
             100.0,
             DEFAULT_GAIN,
+            GObject.ParamFlags.READWRITE,
+        ),
+        "wb-blue-ratio": (
+            float,
+            "White balance blue ratio",
+            "White balance blue/green ratio (If neither wb-blue or wb-red are specified, auto wb is used)",
+            -1,
+            10.0,
+            DEFAULT_WB_BLUE,
+            GObject.ParamFlags.READWRITE,
+        ),
+        "wb-red-ratio": (
+            float,
+            "White balance red ratio",
+            "White balance red/green ratio (If neither wb-blue or wb-red are specified, auto wb is used)",
+            -1,
+            10.0,
+            DEFAULT_WB_BLUE,
             GObject.ParamFlags.READWRITE,
         ),
         "h-binning": (
@@ -163,6 +183,8 @@ class PySpinSrc(GstBase.PushSrc):
         # Properties
         self.exposure_time: float = DEFAULT_EXPOSURE_TIME
         self.gain: float = DEFAULT_GAIN
+        self.wb_blue: float = DEFAULT_WB_BLUE
+        self.wb_red: float = DEFAULT_WB_RED
         self.h_binning: int = DEFAULT_H_BINNING
         self.v_binning: int = DEFAULT_V_BINNING
         self.offset_x: int = DEFAULT_OFFSET_X
@@ -179,8 +201,8 @@ class PySpinSrc(GstBase.PushSrc):
         self.cam: PySpin.Camera = None
 
         # Buffer timing
-        self.timestamp_offset: long = 0
-        self.previous_timestamp: long = 0
+        self.timestamp_offset: int = 0
+        self.previous_timestamp: int = 0
 
         # Base class proprties
         self.set_live(True)
@@ -223,6 +245,7 @@ class PySpinSrc(GstBase.PushSrc):
         self.cam.OffsetX.SetValue(offset_x)
         Gst.info(f"OffsetX: {self.cam.OffsetX.GetValue()}")
 
+    # Camera helper function
     def get_format_type_from_genicam(self, genicam_format: str) -> PixelFormatType:
         return next(
             (
@@ -233,6 +256,7 @@ class PySpinSrc(GstBase.PushSrc):
             None,
         )
 
+    # Camera helper function
     def get_format_type_from_gst(self, gst_format: str) -> PixelFormatType:
         return next(
             (f for f in SUPPORTED_PIXEL_FORMATS if f.gst.lower() == gst_format.lower()),
@@ -258,7 +282,25 @@ class PySpinSrc(GstBase.PushSrc):
                 self.info.height, self.info.width, self.offset_y, self.offset_x
             )
 
-            self.cam.AcquisitionFrameRateEnable.SetValue(True)
+            if self.cam.AcquisitionFrameRateEnable.GetAccessMode() == PySpin.RW:
+                self.cam.AcquisitionFrameRateEnable.SetValue(True)
+            else:
+                # Camera is an older model
+                nodemap = self.cam.GetNodeMap()
+                acquisition_fr_auto_node = PySpin.CEnumerationPtr(
+                    nodemap.GetNode("AcquisitionFrameRateAuto")
+                )
+                acquisition_fr_auto_node.SetIntValue(
+                    acquisition_fr_auto_node.GetEntryByName("Off").GetValue()
+                )
+                acquisition_fr_enabled_node = PySpin.CBooleanPtr(
+                    nodemap.GetNode("AcquisitionFrameRateEnabled")
+                )
+                if PySpin.IsAvailable(
+                    acquisition_fr_enabled_node
+                ) and PySpin.IsWritable(acquisition_fr_enabled_node):
+                    acquisition_fr_enabled_node.SetValue(True)
+
             self.cam.AcquisitionFrameRate.SetValue(self.info.fps_n / self.info.fps_d)
             Gst.info(f"Frame rate: {self.cam.AcquisitionFrameRate.GetValue()}")
 
@@ -267,7 +309,7 @@ class PySpinSrc(GstBase.PushSrc):
             return False
         return True
 
-    # Camera helper funtion
+    # Camera helper function
     def apply_properties_to_transport_layer(self) -> bool:
         try:
             # Configure Transport Layer Properties
@@ -324,6 +366,12 @@ class PySpinSrc(GstBase.PushSrc):
                 )
             else:
                 self.cam.ExposureAuto.SetValue(PySpin.ExposureAuto_Off)
+                self.exposure_time = max(
+                    self.exposure_time, self.cam.ExposureTime.GetMin()
+                )
+                self.exposure_time = min(
+                    self.exposure_time, self.cam.ExposureTime.GetMax()
+                )
                 self.cam.ExposureTime.SetValue(self.exposure_time)
                 Gst.info(f"Exposure Time: {self.cam.ExposureTime.GetValue()}us")
 
@@ -334,8 +382,38 @@ class PySpinSrc(GstBase.PushSrc):
                 )
             else:
                 self.cam.GainAuto.SetValue(PySpin.GainAuto_Off)
+                self.gain = max(self.gain, self.cam.Gain.GetMin())
+                self.gain = min(self.gain, self.cam.Gain.GetMax())
                 self.cam.Gain.SetValue(self.gain)
                 Gst.info(f"Gain: {self.cam.Gain.GetValue()}db")
+
+            if self.cam.BalanceWhiteAuto.GetAccessMode() != PySpin.RW:
+                Gst.info("White balance not applicable")
+            elif self.wb_blue < 0 and self.wb_red < 0:
+                self.cam.BalanceWhiteAuto.SetValue(PySpin.BalanceWhiteAuto_Continuous)
+                Gst.info(
+                    f"Auto White Balance: {self.cam.BalanceWhiteAuto.GetCurrentEntry().GetSymbolic()}"
+                )
+            else:
+                self.cam.BalanceWhiteAuto.SetValue(PySpin.BalanceWhiteAuto_Off)
+
+                self.cam.BalanceRatioSelector.SetValue(PySpin.BalanceRatioSelector_Blue)
+                if self.wb_blue >= 0:
+                    self.wb_blue = max(self.wb_blue, self.cam.BalanceRatio.GetMin())
+                    self.wb_blue = min(self.wb_blue, self.cam.BalanceRatio.GetMax())
+                    self.cam.BalanceRatio.SetValue(self.wb_blue)
+                Gst.info(
+                    f"White balance blue/green ratio: {self.cam.BalanceRatio.GetValue()}"
+                )
+
+                self.cam.BalanceRatioSelector.SetValue(PySpin.BalanceRatioSelector_Red)
+                if self.wb_red >= 0:
+                    self.wb_red = max(self.wb_red, self.cam.BalanceRatio.GetMin())
+                    self.wb_red = min(self.wb_red, self.cam.BalanceRatio.GetMax())
+                    self.cam.BalanceRatio.SetValue(self.wb_red)
+                Gst.info(
+                    f"White balance red/green ratio: {self.cam.BalanceRatio.GetValue()}"
+                )
 
         except PySpin.SpinnakerException as ex:
             Gst.error(f"Error: {ex}")
@@ -343,19 +421,21 @@ class PySpinSrc(GstBase.PushSrc):
 
         return True
 
+    # Camera helper function
     def get_camera_caps(self) -> Gst.Caps:
 
         # Get current pixel format
         starting_pixel_format_name = (
-            self.cam.PixelFormat.GetCurrentEntry().GetDisplayName()
+            self.cam.PixelFormat.GetCurrentEntry().GetSymbolic()
         )
 
         # Get Pixel Formats
         supported_pixel_formats = [
-            self.get_format_type_from_genicam(pf.GetDisplayName())
+            self.get_format_type_from_genicam(pf.GetName().split("_")[-1])
             for pf in self.cam.PixelFormat.GetEntries()
             if PySpin.IsAvailable(pf)
-            and self.get_format_type_from_genicam(pf.GetDisplayName()) is not None
+            and self.get_format_type_from_genicam(pf.GetName().split("_")[-1])
+            is not None
         ]
 
         camera_caps = Gst.Caps.new_empty()
@@ -531,6 +611,10 @@ class PySpinSrc(GstBase.PushSrc):
             return self.exposure_time
         elif prop.name == "gain":
             return self.gain
+        elif prop.name == "wb-blue-ratio":
+            return self.wb_blue
+        elif prop.name == "wb-red-ratio":
+            return self.wb_red
         elif prop.name == "h-binning":
             return self.h_binning
         elif prop.name == "v-binning":
@@ -555,6 +639,10 @@ class PySpinSrc(GstBase.PushSrc):
             self.exposure_time = value
         elif prop.name == "gain":
             self.gain = value
+        elif prop.name == "wb-blue-ratio":
+            self.wb_blue = value
+        elif prop.name == "wb-red-ratio":
+            self.wb_red = value
         elif prop.name == "h-binning":
             self.h_binning = value
         elif prop.name == "v-binning":
