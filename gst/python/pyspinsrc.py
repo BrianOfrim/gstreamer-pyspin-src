@@ -1,5 +1,6 @@
 from dataclasses import dataclass
-from typing import List
+import math
+from typing import List, Callable
 
 import gi
 
@@ -63,6 +64,253 @@ SUPPORTED_PIXEL_FORMATS = [
     PixelFormatType(cap_type=BAYER_CAP_TYPE, gst="bggr", genicam="BayerBG8"),
     PixelFormatType(cap_type=BAYER_CAP_TYPE, gst="grbg", genicam="BayerGR8"),
 ]
+
+
+class ImageAcquirer:
+    def __init__(self):
+        self._system = PySpin.System.GetInstance()
+        self._device_list = self._system.GetCameras()
+        self._current_device = None
+        self._node_map = None
+
+    def __del__(self):
+
+        self._reset_cam()
+        self._device_list.Clear()
+        self._system.ReleaseInstance()
+
+    def _reset_cam(self):
+        if self._current_device is not None and self._current_device.IsValid():
+            if self._current_device.IsStreaming():
+                self._current_device.EndAcquisition()
+            if self._current_device.IsInitialized():
+                self._current_device.DeInit()
+
+        del self._current_device
+        self._node_map = None
+        self._current_device = None
+
+    def update_device_list(self):
+        self._device_list = self._system.GetCameras()
+
+    def get_device_count(self, update_list: bool = True) -> int:
+        if update_list:
+            self.update_device_list()
+        return self._device_list.GetSize()
+
+    def _get_node_map(self) -> PySpin.NodeMap:
+        if self._current_device is None or not self._current_device.IsValid():
+            raise ValueError("No device has been selected an initialied")
+        if self._node_map is None:
+            self._node_map = self._current_device.GetNodeMap()
+        return self._node_map
+
+    def _get_device_id(self) -> str:
+        if self._current_device is None or not self._current_device.IsValid():
+            return None
+        return self._current_device.TLDevice.DeviceSerialNumber.GetValue()
+
+    # Camera helper function
+    def init_device(self, device_serial: str = None, device_index: int = None,) -> bool:
+        # reset cam
+        self._reset_cam()
+
+        self.update_device_list()
+
+        candidate_devices: List[PySpin.Camera] = []
+
+        if device_serial is not None:
+            candidate_devices.append(self._device_list.GetBySerial(device_serial))
+
+        if device_index is not None and device_index < self.get_device_count(
+            update_list=False
+        ):
+            candidate_devices.append(self._device_list.GetByIndex(device_index))
+
+        self._current_device = next(
+            (dev for dev in candidate_devices if dev and dev.IsValid()), None
+        )
+
+        if self._current_device is None:
+            raise ValueError(
+                f"Error: No device with serial number '{device_serial}' or index '{device_index}' is available"
+            )
+
+        self._current_device.Init()
+
+        # Ensure that acquisition is stopped
+        try:
+            self.end_acquisition()
+        except PySpin.SpinnakerException:
+            pass
+
+        return True
+
+    def start_acquisition(self):
+        self.set_enum_node_val("AcquisitionMode", "Continuous")
+        self._current_device.BeginAcquisition()
+        return True
+
+    def end_acquisition(self):
+        self._current_device.EndAcquisition()
+        return True
+
+    # Convenience method
+    def restore_default_settings(self):
+        self.set_enum_node_val("UserSetSelector", "Default")
+        self.execute_command_node("UserSetLoad")
+        return True
+
+    # Convenience method
+    def set_frame_rate(self, frame_rate: float, logger: Callable[[str], None] = None):
+        if PySpin.IsAvailable(
+            PySpin.CBooleanPtr(
+                self._get_node_map().GetNode("AcquisitionFrameRateEnable")
+            )
+        ):
+            self.set_bool_node_val("AcquisitionFrameRateEnable", True, logger)
+
+        else:
+            # Camera is an older model
+            self.set_enum_node_val("AcquisitionFrameRateAuto", "Off", logger)
+            self.set_bool_node_val("AcquisitionFrameRateEnabled", False, logger)
+
+        self.set_float_node_val("AcquisitionFrameRate", frame_rate, logger)
+
+    def configure_buffer_handling(self, num_device_buffers: int = 10):
+        # Configure Transport Layer Properties
+        self._current_device.TLStream.StreamBufferHandlingMode.SetValue(
+            PySpin.StreamBufferHandlingMode_OldestFirst
+        )
+        self._current_device.StreamBufferCountMode.SetValue(
+            PySpin.StreamBufferCountMode_Manual
+        )
+        self._current_device.StreamBufferCountManual.SetValue(num_device_buffers)
+
+    def get_int_node_val(self, node_name: str) -> int:
+
+        int_node = PySpin.CIntegerPtr(self._get_node_map().GetNode(node_name))
+        if not PySpin.IsAvailable(int_node):
+            raise ValueError(f"Error: Integer node '{node_name}' is not available")
+        if not PySpin.IsReadable(int_node):
+            raise ValueError(f"Error: Integer node '{node_name}' is not readable")
+        return int_node.GetValue()
+
+    def set_int_node_val(
+        self, node_name: str, value: int, logger: Callable[[str], None] = None
+    ):
+
+        int_node = PySpin.CIntegerPtr(self._get_node_map().GetNode(node_name))
+        if not PySpin.IsAvailable(int_node):
+            raise ValueError(f"Error: Integer node '{node_name}' is not available")
+        if not PySpin.IsWritable(int_node):
+            raise ValueError(f"Error: Integer node '{node_name}' is not writable")
+
+        value = max(value, int_node.GetMin())
+        value = min(value, int_node.GetMax())
+
+        int_node.SetValue(int(value))
+
+        if logger:
+            logger(f"{node_name} = {self.get_int_node_val(node_name)}")
+
+    def get_float_node_val(self, node_name: str) -> float:
+
+        float_node = PySpin.CFloatPtr(self._get_node_map().GetNode(node_name))
+        if not PySpin.IsAvailable(float_node):
+            raise ValueError(f"Error: Float node '{node_name}' is not available")
+        if not PySpin.IsReadable(float_node):
+            raise ValueError(f"Error: Float node '{node_name}' is not readable")
+        return float_node.GetValue()
+
+    def set_float_node_val(
+        self, node_name: str, value: float, logger: Callable[[str], None] = None
+    ):
+
+        float_node = PySpin.CFloatPtr(self._get_node_map().GetNode(node_name))
+        if not PySpin.IsAvailable(float_node):
+            raise ValueError(f"Error: Float node '{node_name}' is not available")
+        if not PySpin.IsWritable(float_node):
+            raise ValueError(f"Error: Float node '{node_name}' is not writable")
+
+        value = max(value, float_node.GetMin())
+        value = min(value, float_node.GetMax())
+
+        float_node.SetValue(float(value))
+
+        if logger:
+            logger(f"{node_name} = {self.get_float_node_val(node_name)}")
+
+    def get_bool_node_val(self, node_name: str) -> bool:
+
+        bool_node = PySpin.CBooleanPtr(self._get_node_map().GetNode(node_name))
+        if not PySpin.IsAvailable(bool_node):
+            raise ValueError(f"Error: Boolean node '{node_name}' is not available")
+        if not PySpin.IsReadable(bool_node):
+            raise ValueError(f"Error: Boolean node '{node_name}' is not readable")
+        return bool_node.GetValue()
+
+    def set_bool_node_val(
+        self, node_name: str, value: bool, logger: Callable[[str], None] = None
+    ):
+
+        bool_node = PySpin.CBooleanPtr(self._get_node_map().GetNode(node_name))
+        if not PySpin.IsAvailable(bool_node):
+            raise ValueError(f"Error: Boolean node '{node_name}' is not available")
+        if not PySpin.IsWritable(bool_node):
+            raise ValueError(f"Error: Boolean node '{node_name}' is not writable")
+
+        bool_node.SetValue(bool(value))
+
+        if logger:
+            logger(f"{node_name} = {self.get_bool_node_val(node_name)}")
+
+    def get_enum_node_val(self, node_name: str) -> str:
+
+        enum_node = PySpin.CEnumerationPtr(self._get_node_map().GetNode(node_name))
+        if not PySpin.IsAvailable(enum_node):
+            raise ValueError(f"Error: Enumeration node '{node_name}' is not available")
+        if not PySpin.IsReadable(enum_node):
+            raise ValueError(f"Error: Enumeration node '{node_name}' is not readable")
+        return enum_node.GetCurrentEntry().GetSymbolic()
+
+    def set_enum_node_val(
+        self, node_name: str, value: str, logger: Callable[[str], None] = None
+    ) -> bool:
+
+        enum_node = PySpin.CEnumerationPtr(self._get_node_map().GetNode(node_name))
+        if not PySpin.IsAvailable(enum_node):
+            raise ValueError(f"Error: Enumeration node '{node_name}' is not available")
+        if not PySpin.IsWritable(enum_node):
+            raise ValueError(f"Error: Enumeration node '{node_name}' is not writable")
+
+        enum_entry_node = enum_node.GetEntryByName(value)
+        if not PySpin.IsAvailable(enum_entry_node):
+            raise ValueError(
+                f"Error: Entry '{value}' for enumeration node '{node_name}' is not available"
+            )
+        if not PySpin.IsReadable(enum_entry_node):
+            raise ValueError(
+                f"Error: Entry '{value}' for enumeration node '{node_name}' is not readable"
+            )
+
+        enum_node.SetIntValue(enum_entry_node)
+
+        if logger:
+            logger(f"{node_name} = {self.get_enum_node_val(node_name)}")
+
+        return True
+
+        # return True
+
+    def execute_command_node(self, node_name: str) -> bool:
+        command_node = PySpin.CCommandPtr(self._get_node_map().GetNode(node_name))
+        if not PySpin.IsAvailable(command_node):
+            raise ValueError(f"Error: Command node '{node_name}' is not available")
+        if not PySpin.IsWritable(command_node):
+            raise ValueError(f"Error: Command node '{node_name}' is not writable")
+        command_node.Execute()
+        return True
 
 
 class PySpinSrc(GstBase.PushSrc):
@@ -195,10 +443,7 @@ class PySpinSrc(GstBase.PushSrc):
 
         self.camera_caps = None
 
-        # Spinnaker objects
-        self.system: PySpin.System = None
-        self.cam_list: PySpin.CameraList = None
-        self.cam: PySpin.Camera = None
+        self.image_acquirer: ImageAcquirer = None
 
         # Buffer timing
         self.timestamp_offset: int = 0
@@ -208,45 +453,7 @@ class PySpinSrc(GstBase.PushSrc):
         self.set_live(True)
         self.set_format(Gst.Format.TIME)
 
-    # Camera helper function
-    def apply_default_settings(self) -> bool:
-        try:
-            self.cam.UserSetSelector.SetValue(PySpin.UserSetSelector_Default)
-            self.cam.UserSetLoad()
-            Gst.info("Default settings loaded")
-        except PySpin.SpinnakerException as ex:
-            Gst.error(f"Error: {ex}")
-            return False
-
-        return True
-
-    # Camera helper function
-    # ret val = Height: int, Width: int, OffsetY: int, OffsetX int
-    def get_roi(self) -> (int, int, int, int):
-        return (
-            self.cam.Height.GetValue(),
-            self.cam.Width.GetValue(),
-            self.cam.OffsetY.GetValue(),
-            self.cam.OffsetX.GetValue(),
-        )
-
-    # Camera helper function
-    def set_roi(self, height: int, width: int, offset_y: int = 0, offset_x: int = 0):
-
-        self.cam.Height.SetValue(height)
-        Gst.info(f"Height: {self.cam.Height.GetValue()}")
-
-        self.cam.Width.SetValue(width)
-        Gst.info(f"Width: {self.cam.Width.GetValue()}")
-
-        self.cam.OffsetY.SetValue(offset_y)
-        Gst.info(f"OffsetY: {self.cam.OffsetY.GetValue()}")
-
-        self.cam.OffsetX.SetValue(offset_x)
-        Gst.info(f"OffsetX: {self.cam.OffsetX.GetValue()}")
-
-    # Camera helper function
-    def get_format_type_from_genicam(self, genicam_format: str) -> PixelFormatType:
+    def get_format_from_genicam(self, genicam_format: str) -> PixelFormatType:
         return next(
             (
                 f
@@ -256,89 +463,81 @@ class PySpinSrc(GstBase.PushSrc):
             None,
         )
 
-    # Camera helper function
-    def get_format_type_from_gst(self, gst_format: str) -> PixelFormatType:
+    def get_format_from_gst(self, gst_format: str) -> PixelFormatType:
         return next(
             (f for f in SUPPORTED_PIXEL_FORMATS if f.gst.lower() == gst_format.lower()),
             None,
         )
 
-    # Camera helper function
+    # ret val = Height: int, Width: int, OffsetY: int, OffsetX int
+    def get_roi(self) -> (int, int, int, int):
+        return (
+            self.image_acquirer.get_int_node_val("Height"),
+            self.image_acquirer.get_int_node_val("Width"),
+            self.image_acquirer.get_int_node_val("OffsetY"),
+            self.image_acquirer.get_int_node_val("OffsetX"),
+        )
+
+    def set_roi(self, height: int, width: int, offset_y: int = 0, offset_x: int = 0):
+
+        self.image_acquirer.set_int_node_val("Height", height, Gst.info)
+        self.image_acquirer.set_int_node_val("Width", width, Gst.info)
+        self.image_acquirer.set_int_node_val("OffsetY", offset_y, Gst.info)
+        self.image_acquirer.set_int_node_val("OffsetX", offset_x, Gst.info)
+
+    def set_pixel_format(self, gst_pixel_format: str):
+        genicam_format = self.get_format_from_gst(gst_pixel_format).genicam
+        self.image_acquirer.set_enum_node_val("PixelFormat", genicam_format, Gst.info)
+
     def apply_caps_to_cam(self) -> bool:
         Gst.info("Applying caps.")
         try:
 
-            self.cam.PixelFormat.SetIntValue(
-                self.cam.PixelFormat.GetEntryByName(
-                    self.get_format_type_from_gst(self.info.finfo.name).genicam
-                ).GetValue()
-            )
-
-            Gst.info(
-                f"Pixel format: {self.cam.PixelFormat.GetCurrentEntry().GetSymbolic()}"
-            )
+            self.set_pixel_format(self.info.finfo.name)
 
             self.set_roi(
                 self.info.height, self.info.width, self.offset_y, self.offset_x
             )
 
-            if self.cam.AcquisitionFrameRateEnable.GetAccessMode() == PySpin.RW:
-                self.cam.AcquisitionFrameRateEnable.SetValue(True)
-            else:
-                # Camera is an older model
-                nodemap = self.cam.GetNodeMap()
-                acquisition_fr_auto_node = PySpin.CEnumerationPtr(
-                    nodemap.GetNode("AcquisitionFrameRateAuto")
-                )
-                acquisition_fr_auto_node.SetIntValue(
-                    acquisition_fr_auto_node.GetEntryByName("Off").GetValue()
-                )
-                acquisition_fr_enabled_node = PySpin.CBooleanPtr(
-                    nodemap.GetNode("AcquisitionFrameRateEnabled")
-                )
-                if PySpin.IsAvailable(
-                    acquisition_fr_enabled_node
-                ) and PySpin.IsWritable(acquisition_fr_enabled_node):
-                    acquisition_fr_enabled_node.SetValue(True)
+            self.image_acquirer.set_frame_rate(
+                self.info.fps_n / self.info.fps_d, Gst.info
+            )
 
-            self.cam.AcquisitionFrameRate.SetValue(self.info.fps_n / self.info.fps_d)
-            Gst.info(f"Frame rate: {self.cam.AcquisitionFrameRate.GetValue()}")
-
-        except PySpin.SpinnakerException as ex:
+        except ValueError as ex:
             Gst.error(f"Error: {ex}")
             return False
         return True
 
-    # Camera helper function
-    def apply_properties_to_transport_layer(self) -> bool:
-        try:
-            # Configure Transport Layer Properties
-            self.cam.TLStream.StreamBufferHandlingMode.SetValue(
-                PySpin.StreamBufferHandlingMode_OldestFirst
-            )
-            self.cam.TLStream.StreamBufferCountMode.SetValue(
-                PySpin.StreamBufferCountMode_Manual
-            )
-            self.cam.TLStream.StreamBufferCountManual.SetValue(self.num_cam_buffers)
+    # # Camera helper function
+    # def apply_properties_to_transport_layer(self) -> bool:
+    #     try:
+    #         # Configure Transport Layer Properties
+    #         self.cam.TLStream.StreamBufferHandlingMode.SetValue(
+    #             PySpin.StreamBufferHandlingMode_OldestFirst
+    #         )
+    #         self.cam.TLStream.StreamBufferCountMode.SetValue(
+    #             PySpin.StreamBufferCountMode_Manual
+    #         )
+    #         self.cam.TLStream.StreamBufferCountManual.SetValue(self.num_cam_buffers)
 
-            Gst.info(
-                f"Buffer Handling Mode: {self.cam.TLStream.StreamBufferHandlingMode.GetCurrentEntry().GetSymbolic()}"
-            )
-            Gst.info(
-                f"Buffer Count Mode: {self.cam.TLStream.StreamBufferCountMode.GetCurrentEntry().GetSymbolic()}"
-            )
-            Gst.info(
-                f"Buffer Count: {self.cam.TLStream.StreamBufferCountManual.GetValue()}"
-            )
-            Gst.info(
-                f"Max Buffer Count: {self.cam.TLStream.StreamBufferCountManual.GetMax()}"
-            )
+    #         Gst.info(
+    #             f"Buffer Handling Mode: {self.cam.TLStream.StreamBufferHandlingMode.GetCurrentEntry().GetSymbolic()}"
+    #         )
+    #         Gst.info(
+    #             f"Buffer Count Mode: {self.cam.TLStream.StreamBufferCountMode.GetCurrentEntry().GetSymbolic()}"
+    #         )
+    #         Gst.info(
+    #             f"Buffer Count: {self.cam.TLStream.StreamBufferCountManual.GetValue()}"
+    #         )
+    #         Gst.info(
+    #             f"Max Buffer Count: {self.cam.TLStream.StreamBufferCountManual.GetMax()}"
+    #         )
 
-        except PySpin.SpinnakerException as ex:
+    #     except PySpin.SpinnakerException as ex:
 
-            Gst.error(f"Error: {ex}")
-            return False
-        return True
+    #         Gst.error(f"Error: {ex}")
+    #         return False
+    #     return True
 
     # Camera helper function
     def apply_properties_to_cam(self) -> bool:
