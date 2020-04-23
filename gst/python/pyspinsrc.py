@@ -141,25 +141,28 @@ class ImageAcquirer:
         # Ensure that acquisition is stopped
         try:
             self.end_acquisition()
-        except PySpin.SpinnakerException:
+        except ValueError:
             pass
 
         return True
 
     def start_acquisition(self):
         self.set_enum_node_val("AcquisitionMode", "Continuous")
-        self._current_device.BeginAcquisition()
-        return True
+        try:
+            self._current_device.BeginAcquisition()
+        except PySpin.SpinnakerException as ex:
+            raise ValueError(f"Error: {ex}")
 
     def end_acquisition(self):
-        self._current_device.EndAcquisition()
-        return True
+        try:
+            self._current_device.EndAcquisition()
+        except PySpin.SpinnakerException as ex:
+            raise ValueError(f"Error: {ex}")
 
     # Convenience method
     def restore_default_settings(self):
         self.set_enum_node_val("UserSetSelector", "Default")
         self.execute_command_node("UserSetLoad")
-        return True
 
     # Convenience method
     def set_frame_rate(self, frame_rate: float, logger: Callable[[str], None] = None):
@@ -196,6 +199,15 @@ class ImageAcquirer:
             raise ValueError(f"Error: Integer node '{node_name}' is not readable")
         return int_node.GetValue()
 
+    def get_int_node_range(self, node_name: str) -> (int, int):
+        int_node = PySpin.CIntegerPtr(self._get_node_map().GetNode(node_name))
+        if not PySpin.IsAvailable(int_node):
+            raise ValueError(f"Error: Integer node '{node_name}' is not available")
+        if not PySpin.IsReadable(int_node):
+            raise ValueError(f"Error: Integer node '{node_name}' is not writable")
+
+        return (int_node.GetMin(), int_node.GetMax())
+
     def set_int_node_val(
         self, node_name: str, value: int, logger: Callable[[str], None] = None
     ):
@@ -214,8 +226,16 @@ class ImageAcquirer:
         if logger:
             logger(f"{node_name} = {self.get_int_node_val(node_name)}")
 
-    def get_float_node_val(self, node_name: str) -> float:
+    def get_float_node_val(self, node_name: str) -> (float, float):
 
+        float_node = PySpin.CFloatPtr(self._get_node_map().GetNode(node_name))
+        if not PySpin.IsAvailable(float_node):
+            raise ValueError(f"Error: Float node '{node_name}' is not available")
+        if not PySpin.IsReadable(float_node):
+            raise ValueError(f"Error: Float node '{node_name}' is not readable")
+        return (float_node.GetMin(), float_node.GetMax())
+
+    def get_float_node_range(self, node_name: str) -> (int, int):
         float_node = PySpin.CFloatPtr(self._get_node_map().GetNode(node_name))
         if not PySpin.IsAvailable(float_node):
             raise ValueError(f"Error: Float node '{node_name}' is not available")
@@ -264,6 +284,26 @@ class ImageAcquirer:
 
         if logger:
             logger(f"{node_name} = {self.get_bool_node_val(node_name)}")
+
+    def enum_node_available(self, node_name: str) -> bool:
+        return PySpin.IsAvailable(
+            PySpin.CEnumerationPtr(self._get_node_map().GetNode(node_name))
+        )
+
+    def get_available_enum_entries(self, node_name: str) -> List[str]:
+        enum_node = PySpin.CEnumerationPtr(self._get_node_map().GetNode(node_name))
+        if not PySpin.IsAvailable(enum_node):
+            raise ValueError(f"Error: Enumeration node '{node_name}' is not available")
+        if not PySpin.IsReadable(enum_node):
+            raise ValueError(f"Error: Enumeration node '{node_name}' is not readable")
+
+        available_entries = [
+            pf.GetName().split("_")[-1]
+            for pf in enum_node.GetEntries()
+            if PySpin.IsAvailable(pf)
+        ]
+
+        return available_entries
 
     def get_enum_node_val(self, node_name: str) -> str:
 
@@ -508,36 +548,14 @@ class PySpinSrc(GstBase.PushSrc):
             return False
         return True
 
-    # # Camera helper function
-    # def apply_properties_to_transport_layer(self) -> bool:
-    #     try:
-    #         # Configure Transport Layer Properties
-    #         self.cam.TLStream.StreamBufferHandlingMode.SetValue(
-    #             PySpin.StreamBufferHandlingMode_OldestFirst
-    #         )
-    #         self.cam.TLStream.StreamBufferCountMode.SetValue(
-    #             PySpin.StreamBufferCountMode_Manual
-    #         )
-    #         self.cam.TLStream.StreamBufferCountManual.SetValue(self.num_cam_buffers)
-
-    #         Gst.info(
-    #             f"Buffer Handling Mode: {self.cam.TLStream.StreamBufferHandlingMode.GetCurrentEntry().GetSymbolic()}"
-    #         )
-    #         Gst.info(
-    #             f"Buffer Count Mode: {self.cam.TLStream.StreamBufferCountMode.GetCurrentEntry().GetSymbolic()}"
-    #         )
-    #         Gst.info(
-    #             f"Buffer Count: {self.cam.TLStream.StreamBufferCountManual.GetValue()}"
-    #         )
-    #         Gst.info(
-    #             f"Max Buffer Count: {self.cam.TLStream.StreamBufferCountManual.GetMax()}"
-    #         )
-
-    #     except PySpin.SpinnakerException as ex:
-
-    #         Gst.error(f"Error: {ex}")
-    #         return False
-    #     return True
+    # Camera helper function
+    def apply_buffer_handling_properties(self) -> bool:
+        try:
+            self.image_acquirer.configure_buffer_handling(self.num_cam_buffers)
+        except ValueError as ex:
+            Gst.error(f"Error: {ex}")
+            return False
+        return True
 
     # Camera helper function
     def apply_properties_to_cam(self) -> bool:
@@ -545,76 +563,60 @@ class PySpinSrc(GstBase.PushSrc):
         try:
             # Configure Camera Properties
             if self.h_binning > 1:
-                self.cam.BinningHorizontal.SetValue(self.h_binning)
-                self.cam.BinningHorizontalMode.SetValue(
-                    PySpin.BinningHorizontalMode_Average
+                self.image_acquirer.set_int_node_val(
+                    "BinningHorizontal", self.h_binning, Gst.info
                 )
-                Gst.info(f"Horizontal Binning: {self.cam.BinningHorizontal.GetValue()}")
 
             if self.v_binning > 1:
-                self.cam.BinningVertical.SetValue(self.v_binning)
-                self.cam.BinningVerticalMode.SetValue(
-                    PySpin.BinningVerticalMode_Average
+                self.image_acquirer.set_int_node_val(
+                    "BinningVertical", self.v_binning, Gst.info
                 )
-                Gst.info(f"Vertical Binning: {self.cam.BinningVertical.GetValue()}")
 
             if self.exposure_time < 0:
-                self.cam.ExposureAuto.SetValue(PySpin.ExposureAuto_Continuous)
-                Gst.info(
-                    f"Auto Exposure: {self.cam.ExposureAuto.GetCurrentEntry().GetSymbolic()}"
+                self.image_acquirer.set_enum_node_val(
+                    "ExposureAuto", "Continuous", Gst.info
                 )
             else:
-                self.cam.ExposureAuto.SetValue(PySpin.ExposureAuto_Off)
-                self.exposure_time = max(
-                    self.exposure_time, self.cam.ExposureTime.GetMin()
+                self.image_acquirer.set_enum_node_val("ExposureAuto", "Off", Gst.info)
+                self.image_acquirer.set_float_node_val(
+                    "ExposureTime", self.exposure_time, Gst.info
                 )
-                self.exposure_time = min(
-                    self.exposure_time, self.cam.ExposureTime.GetMax()
-                )
-                self.cam.ExposureTime.SetValue(self.exposure_time)
-                Gst.info(f"Exposure Time: {self.cam.ExposureTime.GetValue()}us")
 
             if self.gain < 0:
-                self.cam.GainAuto.SetValue(PySpin.GainAuto_Continuous)
-                Gst.info(
-                    f"Auto Gain: {self.cam.GainAuto.GetCurrentEntry().GetSymbolic()}"
+                self.image_acquirer.set_enum_node_val(
+                    "GainAuto", "Continuous", Gst.info
                 )
             else:
-                self.cam.GainAuto.SetValue(PySpin.GainAuto_Off)
-                self.gain = max(self.gain, self.cam.Gain.GetMin())
-                self.gain = min(self.gain, self.cam.Gain.GetMax())
-                self.cam.Gain.SetValue(self.gain)
-                Gst.info(f"Gain: {self.cam.Gain.GetValue()}db")
+                self.image_acquirer.set_enum_node_val("GainAuto", "Off", Gst.info)
+                self.image_acquirer.set_float_node_val("Gain", self.gain, Gst.info)
 
-            if self.cam.BalanceWhiteAuto.GetAccessMode() != PySpin.RW:
-                Gst.info("White balance not applicable")
-            elif self.wb_blue < 0 and self.wb_red < 0:
-                self.cam.BalanceWhiteAuto.SetValue(PySpin.BalanceWhiteAuto_Continuous)
-                Gst.info(
-                    f"Auto White Balance: {self.cam.BalanceWhiteAuto.GetCurrentEntry().GetSymbolic()}"
-                )
-            else:
-                self.cam.BalanceWhiteAuto.SetValue(PySpin.BalanceWhiteAuto_Off)
+            if self.image_acquirer.enum_node_available("BalanceWhiteAuto"):
+                if self.wb_blue < 0 and self.wb_red < 0:
+                    self.image_acquirer.set_enum_node_val(
+                        "BalanceWhiteAuto", "Continuous", Gst.info
+                    )
+                else:
+                    self.image_acquirer.set_enum_node_val(
+                        "BalanceWhiteAuto", "Off", Gst.info
+                    )
+                    self.image_acquirer.set_enum_node_val(
+                        "BalanceRatioSelector", "Blue", Gst.info
+                    )
 
-                self.cam.BalanceRatioSelector.SetValue(PySpin.BalanceRatioSelector_Blue)
-                if self.wb_blue >= 0:
-                    self.wb_blue = max(self.wb_blue, self.cam.BalanceRatio.GetMin())
-                    self.wb_blue = min(self.wb_blue, self.cam.BalanceRatio.GetMax())
-                    self.cam.BalanceRatio.SetValue(self.wb_blue)
-                Gst.info(
-                    f"White balance blue/green ratio: {self.cam.BalanceRatio.GetValue()}"
-                )
+                    if self.wb_blue >= 0:
+                        self.image_acquirer.set_enum_float_val(
+                            "BalanceRatio", self.wb_blue, Gst.info
+                        )
 
-                self.cam.BalanceRatioSelector.SetValue(PySpin.BalanceRatioSelector_Red)
-                if self.wb_red >= 0:
-                    self.wb_red = max(self.wb_red, self.cam.BalanceRatio.GetMin())
-                    self.wb_red = min(self.wb_red, self.cam.BalanceRatio.GetMax())
-                    self.cam.BalanceRatio.SetValue(self.wb_red)
-                Gst.info(
-                    f"White balance red/green ratio: {self.cam.BalanceRatio.GetValue()}"
-                )
+                    self.image_acquirer.set_enum_node_val(
+                        "BalanceRatioSelector", "Red", Gst.info
+                    )
+                    if self.wb_red >= 0:
+                        self.image_acquirer.set_enum_float_val(
+                            "BalanceRatio", self.wb_red, Gst.info
+                        )
 
-        except PySpin.SpinnakerException as ex:
+        except ValueError as ex:
             Gst.error(f"Error: {ex}")
             return False
 
@@ -624,59 +626,45 @@ class PySpinSrc(GstBase.PushSrc):
     def get_camera_caps(self) -> Gst.Caps:
 
         # Get current pixel format
-        starting_pixel_format_name = (
-            self.cam.PixelFormat.GetCurrentEntry().GetSymbolic()
-        )
+        starting_pixel_format = self.image_acquirer.get_enum_node_val("PixelFormat")
 
-        # Get Pixel Formats
+        genicam_formats = self.image_acquirer.get_available_enum_entries("PixelFormat")
+
         supported_pixel_formats = [
-            self.get_format_type_from_genicam(pf.GetName().split("_")[-1])
-            for pf in self.cam.PixelFormat.GetEntries()
-            if PySpin.IsAvailable(pf)
-            and self.get_format_type_from_genicam(pf.GetName().split("_")[-1])
-            is not None
+            self.get_format_from_genicam(pf) for pf in genicam_formats
+        ]
+
+        supported_pixel_formats = [
+            pf for pf in supported_pixel_formats if pf is not None
         ]
 
         camera_caps = Gst.Caps.new_empty()
 
-        for pixel_format_type in supported_pixel_formats:
+        for pixel_format in supported_pixel_formats:
 
-            # set the pixel format
-            self.cam.PixelFormat.SetIntValue(
-                self.cam.PixelFormat.GetEntryByName(
-                    pixel_format_type.genicam
-                ).GetValue()
+            self.image_acquirer.set_enum_node_val("PixelFormat", pixel_format.genicam)
+
+            width_min, width_max = self.image_acquirer.get_int_node_range("Width")
+            height_min, height_max = self.image_acquirer.get_int_node_range("Height")
+            fr_min, fr_max = self.image_acquirer.get_float_node_range(
+                "AcquisitionFrameRate"
             )
 
             camera_caps.append_structure(
                 Gst.Structure(
-                    pixel_format_type.cap_type,
-                    format=pixel_format_type.gst,
-                    width=Gst.IntRange(
-                        range(self.cam.Width.GetMin(), self.cam.Width.GetMax())
-                    ),
-                    height=Gst.IntRange(
-                        range(self.cam.Height.GetMin(), self.cam.Height.GetMax())
-                    ),
+                    pixel_format.cap_type,
+                    format=pixel_format.gst,
+                    width=Gst.IntRange(range(width_min, width_max)),
+                    height=Gst.IntRange(range(height_min, height_max)),
                     framerate=Gst.FractionRange(
-                        Gst.Fraction(
-                            *Gst.util_double_to_fraction(
-                                self.cam.AcquisitionFrameRate.GetMin()
-                            )
-                        ),
-                        Gst.Fraction(
-                            *Gst.util_double_to_fraction(
-                                self.cam.AcquisitionFrameRate.GetMax()
-                            )
-                        ),
+                        Gst.Fraction(*Gst.util_double_to_fraction(fr_min)),
+                        Gst.Fraction(*Gst.util_double_to_fraction(fr_max)),
                     ),
                 )
             )
 
         # Set the pixel format back to the starting format
-        self.cam.PixelFormat.SetIntValue(
-            self.cam.PixelFormat.GetEntryByName(starting_pixel_format_name).GetValue()
-        )
+        self.image_acquirer.set_enum_node_val("PixelFormat", starting_pixel_format)
 
         return camera_caps
 
@@ -687,86 +675,12 @@ class PySpinSrc(GstBase.PushSrc):
             return False
 
         try:
-            self.cam.AcquisitionMode.SetValue(PySpin.AcquisitionMode_Continuous)
-            self.cam.BeginAcquisition()
-        except PySpin.SpinnakerException as ex:
+            self.image_acquirer.start_acquisition()
+        except ValueError as ex:
             Gst.error(f"Error: {ex}")
             return False
 
         Gst.info("Acquisition Started")
-
-        return True
-
-    # Camera helper function
-    def init_cam(self) -> bool:
-        try:
-            self.system = PySpin.System.GetInstance()
-            self.cam_list = self.system.GetCameras()
-            # Finish if there are no cameras
-            if self.cam_list.GetSize() == 0:
-                self.cam_list.Clear()
-                self.system.ReleaseInstance()
-                Gst.error("No cameras detected")
-                return False
-
-            if self.serial is None:
-                # No serial provided retrieve the first available camera
-                self.cam = self.cam_list.GetByIndex(0)
-                Gst.info(
-                    f"No serial number provided"
-                    f"Using camera: {self.cam.TLDevice.DeviceSerialNumber.GetValue()}"
-                )
-            else:
-                self.cam = self.cam_list.GetBySerial(self.serial)
-                Gst.info(
-                    f"Using camera: {self.cam.TLDevice.DeviceSerialNumber.GetValue()}"
-                )
-
-            if not self.cam or self.cam is None:
-                Gst.error("Could not retrieve camera from camera list.")
-                self.cam_list.Clear()
-                self.system.ReleaseInstance()
-                return False
-
-            self.cam.Init()
-
-            # Ensure that acquisition is stopped before applying settings
-            try:
-                self.cam.AcquisitionStop()
-            except PySpin.SpinnakerException as ex:
-                Gst.info("Acquisition stopped to apply settings")
-
-            if self.load_defaults and not self.apply_default_settings():
-                return False
-
-            if not self.apply_properties_to_cam():
-                return False
-
-            if not self.apply_properties_to_transport_layer():
-                return False
-
-        except PySpin.SpinnakerException as ex:
-            Gst.error(f"Error: {ex}")
-            return False
-
-        return True
-
-    # Camera helper function
-    def deinit_cam(self) -> bool:
-        try:
-            if self.cam.IsStreaming():
-                self.cam.EndAcquisition()
-                Gst.info("Acquisition Ended")
-            if self.cam.IsInitialized():
-                self.cam.DeInit()
-            del self.cam
-            self.cam_list.Clear()
-            self.system.ReleaseInstance()
-
-        except PySpin.SpinnakerException as ex:
-            Gst.error(f"Error: {ex}")
-            return False
-
         return True
 
     # GST function
@@ -862,7 +776,9 @@ class PySpinSrc(GstBase.PushSrc):
     # GST function
     def do_start(self) -> bool:
         Gst.info("Starting")
-        if not self.init_cam():
+        if not self.image_acquirer.init_device(
+            device_serial=self.serial, device_index=(0 if self.serial is None else None)
+        ):
             return False
 
         self.camera_caps = self.get_camera_caps()
@@ -872,7 +788,11 @@ class PySpinSrc(GstBase.PushSrc):
     # GST function
     def do_stop(self) -> bool:
         Gst.info("Stopping")
-        return self.deinit_cam()
+        try:
+            del self.image_acquirer
+        except Exception as ex:
+            Gst.error(f"Error: {ex}")
+        return True
 
     # GST function
     def do_get_times(self, buffer: Gst.Buffer) -> (int, int):
