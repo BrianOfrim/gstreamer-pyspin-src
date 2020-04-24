@@ -133,7 +133,7 @@ class ImageAcquirer:
 
         if self._current_device is None:
             raise ValueError(
-                f"Error: No device with serial number '{device_serial}' or index '{device_index}' is available"
+                f"No device with serial number '{device_serial}' or index '{device_index}' is available"
             )
 
         self._current_device.Init()
@@ -176,35 +176,48 @@ class ImageAcquirer:
         else:
             # Camera is an older model
             self.set_enum_node_val("AcquisitionFrameRateAuto", "Off", logger)
-            self.set_bool_node_val("AcquisitionFrameRateEnabled", False, logger)
+            self.set_bool_node_val("AcquisitionFrameRateEnabled", True, logger)
 
         self.set_float_node_val("AcquisitionFrameRate", frame_rate, logger)
 
-    def configure_buffer_handling(self, num_device_buffers: int = 10):
+    def configure_buffer_handling(
+        self, num_device_buffers: int = 10, logger: Callable[[str], None] = None
+    ):
         # Configure Transport Layer Properties
         self._current_device.TLStream.StreamBufferHandlingMode.SetValue(
             PySpin.StreamBufferHandlingMode_OldestFirst
         )
-        self._current_device.StreamBufferCountMode.SetValue(
+        self._current_device.TLStream.StreamBufferCountMode.SetValue(
             PySpin.StreamBufferCountMode_Manual
         )
-        self._current_device.StreamBufferCountManual.SetValue(num_device_buffers)
+        self._current_device.TLStream.StreamBufferCountManual.SetValue(
+            num_device_buffers
+        )
+        if logger:
+            logger(
+                f"Buffer Handling Mode: {self._current_device.TLStream.StreamBufferHandlingMode.GetCurrentEntry().GetSymbolic()}"
+            )
+            logger(
+                f"Buffer Count Mode: {self._current_device.TLStream.StreamBufferCountMode.GetCurrentEntry().GetSymbolic()}"
+            )
+            logger(
+                f"Buffer Count: {self._current_device.TLStream.StreamBufferCountManual.GetValue()}"
+            )
+            logger(
+                f"Max Buffer Count: {self._current_device.TLStream.StreamBufferCountManual.GetMax()}"
+            )
 
     def get_int_node_val(self, node_name: str) -> int:
 
         int_node = PySpin.CIntegerPtr(self._get_node_map().GetNode(node_name))
-        if not PySpin.IsAvailable(int_node):
-            raise ValueError(f"Error: Integer node '{node_name}' is not available")
-        if not PySpin.IsReadable(int_node):
-            raise ValueError(f"Error: Integer node '{node_name}' is not readable")
+        if not PySpin.IsAvailable(int_node) or not PySpin.IsReadable(int_node):
+            raise ValueError(f"Integer node '{node_name}' is not readable")
         return int_node.GetValue()
 
     def get_int_node_range(self, node_name: str) -> (int, int):
         int_node = PySpin.CIntegerPtr(self._get_node_map().GetNode(node_name))
-        if not PySpin.IsAvailable(int_node):
-            raise ValueError(f"Error: Integer node '{node_name}' is not available")
-        if not PySpin.IsReadable(int_node):
-            raise ValueError(f"Error: Integer node '{node_name}' is not writable")
+        if not PySpin.IsAvailable(int_node) or not PySpin.IsReadable(int_node):
+            raise ValueError(f"Integer node '{node_name}' is not writable")
 
         return (int_node.GetMin(), int_node.GetMax())
 
@@ -213,10 +226,8 @@ class ImageAcquirer:
     ):
 
         int_node = PySpin.CIntegerPtr(self._get_node_map().GetNode(node_name))
-        if not PySpin.IsAvailable(int_node):
-            raise ValueError(f"Error: Integer node '{node_name}' is not available")
-        if not PySpin.IsWritable(int_node):
-            raise ValueError(f"Error: Integer node '{node_name}' is not writable")
+        if not PySpin.IsAvailable(int_node) or not PySpin.IsWritable(int_node):
+            raise ValueError(f"Integer node '{node_name}' is not writable")
 
         value = max(value, int_node.GetMin())
         value = min(value, int_node.GetMax())
@@ -227,58 +238,43 @@ class ImageAcquirer:
             logger(f"{node_name} = {self.get_int_node_val(node_name)}")
 
     def get_float_node_val(self, node_name: str) -> (float, float):
-
         float_node = PySpin.CFloatPtr(self._get_node_map().GetNode(node_name))
-        if not PySpin.IsAvailable(float_node):
-            raise ValueError(f"Error: Float node '{node_name}' is not available")
-        if not PySpin.IsReadable(float_node):
-            raise ValueError(f"Error: Float node '{node_name}' is not readable")
-        return (float_node.GetMin(), float_node.GetMax())
+        if not PySpin.IsAvailable(float_node) or not PySpin.IsReadable(float_node):
+            raise ValueError(f"Float node '{node_name}' is not readable")
+        return float_node.GetValue()
 
     def get_float_node_range(self, node_name: str) -> (int, int):
         float_node = PySpin.CFloatPtr(self._get_node_map().GetNode(node_name))
-        if not PySpin.IsAvailable(float_node):
-            raise ValueError(f"Error: Float node '{node_name}' is not available")
-        if not PySpin.IsReadable(float_node):
-            raise ValueError(f"Error: Float node '{node_name}' is not readable")
-        return float_node.GetValue()
+        if not PySpin.IsAvailable(float_node) or not PySpin.IsReadable(float_node):
+            raise ValueError(f"Float node '{node_name}' is not readable")
+        return (float_node.GetMin(), float_node.GetMax())
 
     def set_float_node_val(
         self, node_name: str, value: float, logger: Callable[[str], None] = None
     ):
-
         float_node = PySpin.CFloatPtr(self._get_node_map().GetNode(node_name))
-        if not PySpin.IsAvailable(float_node):
-            raise ValueError(f"Error: Float node '{node_name}' is not available")
-        if not PySpin.IsWritable(float_node):
-            raise ValueError(f"Error: Float node '{node_name}' is not writable")
+        if not PySpin.IsAvailable(float_node) or not PySpin.IsWritable(float_node):
+            raise ValueError(f"Float node '{node_name}' is not writable")
 
         value = max(value, float_node.GetMin())
         value = min(value, float_node.GetMax())
-
         float_node.SetValue(float(value))
 
         if logger:
             logger(f"{node_name} = {self.get_float_node_val(node_name)}")
 
     def get_bool_node_val(self, node_name: str) -> bool:
-
         bool_node = PySpin.CBooleanPtr(self._get_node_map().GetNode(node_name))
-        if not PySpin.IsAvailable(bool_node):
-            raise ValueError(f"Error: Boolean node '{node_name}' is not available")
-        if not PySpin.IsReadable(bool_node):
-            raise ValueError(f"Error: Boolean node '{node_name}' is not readable")
+        if not PySpin.IsAvailable(bool_node) or not PySpin.IsReadable(bool_node):
+            raise ValueError(f"Boolean node '{node_name}' is not readable")
         return bool_node.GetValue()
 
     def set_bool_node_val(
         self, node_name: str, value: bool, logger: Callable[[str], None] = None
     ):
-
         bool_node = PySpin.CBooleanPtr(self._get_node_map().GetNode(node_name))
-        if not PySpin.IsAvailable(bool_node):
-            raise ValueError(f"Error: Boolean node '{node_name}' is not available")
-        if not PySpin.IsWritable(bool_node):
-            raise ValueError(f"Error: Boolean node '{node_name}' is not writable")
+        if not PySpin.IsAvailable(bool_node) or not PySpin.IsWritable(bool_node):
+            raise ValueError(f"Boolean node '{node_name}' is not writable")
 
         bool_node.SetValue(bool(value))
 
@@ -292,10 +288,8 @@ class ImageAcquirer:
 
     def get_available_enum_entries(self, node_name: str) -> List[str]:
         enum_node = PySpin.CEnumerationPtr(self._get_node_map().GetNode(node_name))
-        if not PySpin.IsAvailable(enum_node):
-            raise ValueError(f"Error: Enumeration node '{node_name}' is not available")
-        if not PySpin.IsReadable(enum_node):
-            raise ValueError(f"Error: Enumeration node '{node_name}' is not readable")
+        if not PySpin.IsAvailable(enum_node) or not PySpin.IsReadable(enum_node):
+            raise ValueError(f"Enumeration node '{node_name}' is not readable")
 
         available_entries = [
             pf.GetName().split("_")[-1]
@@ -308,49 +302,40 @@ class ImageAcquirer:
     def get_enum_node_val(self, node_name: str) -> str:
 
         enum_node = PySpin.CEnumerationPtr(self._get_node_map().GetNode(node_name))
-        if not PySpin.IsAvailable(enum_node):
-            raise ValueError(f"Error: Enumeration node '{node_name}' is not available")
-        if not PySpin.IsReadable(enum_node):
-            raise ValueError(f"Error: Enumeration node '{node_name}' is not readable")
+        if not PySpin.IsAvailable(enum_node) or not PySpin.IsReadable(enum_node):
+            raise ValueError(f"Enumeration node '{node_name}' is not readable")
         return enum_node.GetCurrentEntry().GetSymbolic()
 
     def set_enum_node_val(
         self, node_name: str, value: str, logger: Callable[[str], None] = None
-    ) -> bool:
+    ):
 
         enum_node = PySpin.CEnumerationPtr(self._get_node_map().GetNode(node_name))
-        if not PySpin.IsAvailable(enum_node):
-            raise ValueError(f"Error: Enumeration node '{node_name}' is not available")
-        if not PySpin.IsWritable(enum_node):
-            raise ValueError(f"Error: Enumeration node '{node_name}' is not writable")
+        if not PySpin.IsAvailable(enum_node) or not PySpin.IsWritable(enum_node):
+            raise ValueError(f"Enumeration node '{node_name}' is not writable")
 
-        enum_entry_node = enum_node.GetEntryByName(value)
-        if not PySpin.IsAvailable(enum_entry_node):
+        enum_entry = enum_node.GetEntryByName(value)
+        if not PySpin.IsAvailable(enum_entry) or not PySpin.IsReadable(enum_entry):
             raise ValueError(
-                f"Error: Entry '{value}' for enumeration node '{node_name}' is not available"
-            )
-        if not PySpin.IsReadable(enum_entry_node):
-            raise ValueError(
-                f"Error: Entry '{value}' for enumeration node '{node_name}' is not readable"
+                f"Entry '{value}' for enumeration node '{node_name}' is not available"
             )
 
-        enum_node.SetIntValue(enum_entry_node)
+        enum_node.SetIntValue(enum_entry.GetValue())
 
         if logger:
             logger(f"{node_name} = {self.get_enum_node_val(node_name)}")
 
-        return True
-
-        # return True
-
-    def execute_command_node(self, node_name: str) -> bool:
+    def execute_command_node(
+        self, node_name: str, logger: Callable[[str], None] = None
+    ):
         command_node = PySpin.CCommandPtr(self._get_node_map().GetNode(node_name))
-        if not PySpin.IsAvailable(command_node):
-            raise ValueError(f"Error: Command node '{node_name}' is not available")
-        if not PySpin.IsWritable(command_node):
+        if not PySpin.IsAvailable(command_node) or not PySpin.IsWritable(command_node):
             raise ValueError(f"Error: Command node '{node_name}' is not writable")
+
         command_node.Execute()
-        return True
+
+        if logger:
+            logger(f"{node_name} executed")
 
     def get_next_image(self, logger: Callable[[str], None] = None) -> (np.ndarray, int):
         spinnaker_image = None
@@ -359,7 +344,7 @@ class ImageAcquirer:
 
             # Grab a buffered image from the camera
             try:
-                spinnaker_image = self.cam.GetNextImage(TIMEOUT_MS)
+                spinnaker_image = self._current_device.GetNextImage(TIMEOUT_MS)
             except PySpin.SpinnakerException as ex:
                 if logger:
                     logger(f"Error: {ex}")
@@ -511,7 +496,7 @@ class PySpinSrc(GstBase.PushSrc):
 
         self.camera_caps = None
 
-        self.image_acquirer: ImageAcquirer = None
+        self.image_acquirer: ImageAcquirer = ImageAcquirer()
 
         # Buffer timing
         self.timestamp_offset: int = 0
@@ -632,7 +617,7 @@ class PySpinSrc(GstBase.PushSrc):
                     )
 
                     if self.wb_blue >= 0:
-                        self.image_acquirer.set_enum_float_val(
+                        self.image_acquirer.set_float_node_val(
                             "BalanceRatio", self.wb_blue, Gst.info
                         )
 
@@ -640,7 +625,7 @@ class PySpinSrc(GstBase.PushSrc):
                         "BalanceRatioSelector", "Red", Gst.info
                     )
                     if self.wb_red >= 0:
-                        self.image_acquirer.set_enum_float_val(
+                        self.image_acquirer.set_float_node_val(
                             "BalanceRatio", self.wb_red, Gst.info
                         )
 
@@ -735,7 +720,7 @@ class PySpinSrc(GstBase.PushSrc):
         Gst.info("Fixating caps")
 
         current_cam_height, current_cam_width, _, _ = self.get_roi()
-        frame_rate = self.cam.AcquisitionFrameRate.GetValue()
+        frame_rate = self.image_acquirer.get_float_node_val("AcquisitionFrameRate")
 
         structure = caps.get_structure(0).copy()
         structure.fixate_field_nearest_int("width", current_cam_width)
