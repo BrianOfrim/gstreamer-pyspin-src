@@ -352,6 +352,34 @@ class ImageAcquirer:
         command_node.Execute()
         return True
 
+    def get_next_image(self, logger: Callable[[str], None] = None) -> (np.ndarray, int):
+        spinnaker_image = None
+
+        while spinnaker_image is None or spinnaker_image.IsIncomplete():
+
+            # Grab a buffered image from the camera
+            try:
+                spinnaker_image = self.cam.GetNextImage(TIMEOUT_MS)
+            except PySpin.SpinnakerException as ex:
+                if logger:
+                    logger(f"Error: {ex}")
+                return None, None
+
+            if spinnaker_image.IsIncomplete():
+                logger(
+                    f"Image incomplete with image status {spinnaker_image.GetImageStatus()}"
+                )
+                spinnaker_image.Release()
+
+        image_array = spinnaker_image.GetNDArray()
+        if image_array.ndim == 2:
+            image_array = np.expand_dims(image_array, axis=2)
+        image_timestamp = spinnaker_image.GetTimeStamp()
+
+        spinnaker_image.Release()
+
+        return (image_array, image_timestamp)
+
 
 class PySpinSrc(GstBase.PushSrc):
 
@@ -776,13 +804,26 @@ class PySpinSrc(GstBase.PushSrc):
     # GST function
     def do_start(self) -> bool:
         Gst.info("Starting")
-        if not self.image_acquirer.init_device(
-            device_serial=self.serial, device_index=(0 if self.serial is None else None)
-        ):
+        try:
+            if not self.image_acquirer.init_device(
+                device_serial=self.serial,
+                device_index=(0 if self.serial is None else None),
+            ):
+                return False
+
+            if self.load_defaults:
+                self.image_acquirer.restore_default_settings()
+
+            if not self.apply_properties_to_cam():
+                return False
+
+            if not self.apply_buffer_handling_properties():
+                return False
+
+            self.camera_caps = self.get_camera_caps()
+        except ValueError as ex:
+            Gst.error(f"Error: {ex}")
             return False
-
-        self.camera_caps = self.get_camera_caps()
-
         return True
 
     # GST function
@@ -814,32 +855,16 @@ class PySpinSrc(GstBase.PushSrc):
     # GST function
     def do_gst_push_src_fill(self, buffer: Gst.Buffer) -> Gst.FlowReturn:
 
-        spinnaker_image = None
-
-        while spinnaker_image is None or spinnaker_image.IsIncomplete():
-
-            # Grab a buffered image from the camera
-            try:
-                spinnaker_image = self.cam.GetNextImage(TIMEOUT_MS)
-            except PySpin.SpinnakerException as ex:
-                Gst.error(f"Error: {ex}")
-                return Gst.FlowReturn.ERROR
-
-            if spinnaker_image.IsIncomplete():
-                Gst.warning(
-                    f"Image incomplete with image status {spinnaker_image.GetImageStatus()}"
-                )
-                spinnaker_image.Release()
-
         image_buffer = gst_buffer_with_pad_to_ndarray(buffer, self.srcpad)
 
-        image_array = spinnaker_image.GetNDArray()
-
-        image_buffer[:] = (
-            image_array if image_array.ndim > 2 else np.expand_dims(image_array, axis=2)
+        image_array, image_timestamp = self.image_acquirer.get_next_image(
+            logger=Gst.warning
         )
 
-        image_timestamp = spinnaker_image.GetTimeStamp()
+        if image_array is None:
+            return Gst.FlowReturn.ERROR
+
+        image_buffer[:] = image_array
 
         if self.timestamp_offset == 0:
             self.timestamp_offset = image_timestamp
@@ -852,10 +877,8 @@ class PySpinSrc(GstBase.PushSrc):
 
         Gst.log(
             f"Sending buffer of size: {image_buffer.shape} "
-            f"frame id: {spinnaker_image.GetFrameID()} "
             f"timestamp offset: {buffer.pts // MILLIESCONDS_PER_NANOSECOND}ms"
         )
-        spinnaker_image.Release()
 
         return Gst.FlowReturn.OK
 
