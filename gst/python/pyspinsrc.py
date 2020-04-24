@@ -25,8 +25,11 @@ except ImportError:
     Gst.error("pyspinsrc requires PySpin")
     raise
 
+DEFAULT_AUTO_EXPOSURE = True
+DEFAULT_AUTO_GAIN = True
 DEFAULT_EXPOSURE_TIME = -1
 DEFAULT_GAIN = -1
+DEFAULT_AUTO_WB = True
 DEFAULT_WB_BLUE = -1
 DEFAULT_WB_RED = -1
 DEFAULT_H_BINNING = 1
@@ -377,10 +380,24 @@ class PySpinSrc(GstBase.PushSrc):
     )
 
     __gproperties__ = {
-        "exposure-time": (
+        "auto-exposure": (
+            bool,
+            "automatic exposure timing",
+            "Enable the automatic exposure time algorithm",
+            DEFAULT_AUTO_EXPOSURE,
+            GObject.ParamFlags.READWRITE,
+        ),
+        "auto-gain": (
+            bool,
+            "automatic gain",
+            "Enable the automatic gain algorithm",
+            DEFAULT_AUTO_GAIN,
+            GObject.ParamFlags.READWRITE,
+        ),
+        "exposure": (
             float,
             "exposure time",
-            "Exposure time in microsecods (if not specified auto exposure is used)zz",
+            "Exposure time in microsecods",
             -1,
             100000000.0,
             DEFAULT_EXPOSURE_TIME,
@@ -389,10 +406,17 @@ class PySpinSrc(GstBase.PushSrc):
         "gain": (
             float,
             "gain",
-            "Gain in decibels (if not specified auto gain is used)",
+            "Gain in decibels",
             -1,
             100.0,
             DEFAULT_GAIN,
+            GObject.ParamFlags.READWRITE,
+        ),
+        "auto-wb": (
+            bool,
+            "automatic white balance",
+            "Enable the automatic white balance algorithm",
+            DEFAULT_AUTO_WB,
             GObject.ParamFlags.READWRITE,
         ),
         "wb-blue-ratio": (
@@ -482,8 +506,11 @@ class PySpinSrc(GstBase.PushSrc):
         self.info = GstVideo.VideoInfo()
 
         # Properties
+        self.auto_exposure: bool = DEFAULT_AUTO_EXPOSURE
+        self.auto_gain: bool = DEFAULT_AUTO_GAIN
         self.exposure_time: float = DEFAULT_EXPOSURE_TIME
         self.gain: float = DEFAULT_GAIN
+        self.auto_wb: bool = DEFAULT_AUTO_WB
         self.wb_blue: float = DEFAULT_WB_BLUE
         self.wb_red: float = DEFAULT_WB_RED
         self.h_binning: int = DEFAULT_H_BINNING
@@ -585,49 +612,61 @@ class PySpinSrc(GstBase.PushSrc):
                     "BinningVertical", self.v_binning, Gst.info
                 )
 
-            if self.exposure_time < 0:
-                self.image_acquirer.set_enum_node_val(
-                    "ExposureAuto", "Continuous", Gst.info
-                )
-            else:
+            if self.exposure_time >= 0:
                 self.image_acquirer.set_enum_node_val("ExposureAuto", "Off", Gst.info)
                 self.image_acquirer.set_float_node_val(
                     "ExposureTime", self.exposure_time, Gst.info
                 )
 
-            if self.gain < 0:
+            if self.auto_exposure:
                 self.image_acquirer.set_enum_node_val(
-                    "GainAuto", "Continuous", Gst.info
+                    "ExposureAuto", "Continuous", Gst.info
                 )
-            else:
+
+            if self.gain >= 0:
                 self.image_acquirer.set_enum_node_val("GainAuto", "Off", Gst.info)
                 self.image_acquirer.set_float_node_val("Gain", self.gain, Gst.info)
 
-            if self.image_acquirer.enum_node_available("BalanceWhiteAuto"):
-                if self.wb_blue < 0 and self.wb_red < 0:
-                    self.image_acquirer.set_enum_node_val(
-                        "BalanceWhiteAuto", "Continuous", Gst.info
-                    )
-                else:
-                    self.image_acquirer.set_enum_node_val(
-                        "BalanceWhiteAuto", "Off", Gst.info
-                    )
-                    self.image_acquirer.set_enum_node_val(
-                        "BalanceRatioSelector", "Blue", Gst.info
-                    )
+            if self.auto_gain:
+                self.image_acquirer.set_enum_node_val(
+                    "GainAuto", "Continuous", Gst.info
+                )
 
-                    if self.wb_blue >= 0:
-                        self.image_acquirer.set_float_node_val(
-                            "BalanceRatio", self.wb_blue, Gst.info
-                        )
+            if (
+                self.image_acquirer.enum_node_available("BalanceWhiteAuto")
+                and self.wb_blue >= 0
+            ):
+                self.image_acquirer.set_enum_node_val(
+                    "BalanceWhiteAuto", "Off", Gst.info
+                )
+                self.image_acquirer.set_enum_node_val(
+                    "BalanceRatioSelector", "Blue", Gst.info
+                )
+                self.image_acquirer.set_float_node_val(
+                    "BalanceRatio", self.wb_blue, Gst.info
+                )
 
-                    self.image_acquirer.set_enum_node_val(
-                        "BalanceRatioSelector", "Red", Gst.info
-                    )
-                    if self.wb_red >= 0:
-                        self.image_acquirer.set_float_node_val(
-                            "BalanceRatio", self.wb_red, Gst.info
-                        )
+            if (
+                self.image_acquirer.enum_node_available("BalanceWhiteAuto")
+                and self.wb_red >= 0
+            ):
+                self.image_acquirer.set_enum_node_val(
+                    "BalanceWhiteAuto", "Off", Gst.info
+                )
+                self.image_acquirer.set_enum_node_val(
+                    "BalanceRatioSelector", "Red", Gst.info
+                )
+                self.image_acquirer.set_float_node_val(
+                    "BalanceRatio", self.wb_red, Gst.info
+                )
+
+            if (
+                self.image_acquirer.enum_node_available("BalanceWhiteAuto")
+                and self.auto_wb
+            ):
+                self.image_acquirer.set_enum_node_val(
+                    "BalanceWhiteAuto", "Continuous", Gst.info
+                )
 
         except ValueError as ex:
             Gst.error(f"Error: {ex}")
@@ -733,12 +772,16 @@ class PySpinSrc(GstBase.PushSrc):
 
     # GST function
     def do_get_property(self, prop: GObject.GParamSpec):
-        if prop.name == "exposure-time":
+        if prop.name == "auto-exposure":
+            return self.auto_exposure
+        elif prop.name == "auto-gain":
+            return self.auto_gain
+        elif prop.name == "exposure":
             return self.exposure_time
         elif prop.name == "gain":
             return self.gain
-        elif prop.name == "wb-blue-ratio":
-            return self.wb_blue
+        elif prop.name == "auto-wb":
+            return self.auto_wb
         elif prop.name == "wb-red-ratio":
             return self.wb_red
         elif prop.name == "h-binning":
@@ -761,10 +804,16 @@ class PySpinSrc(GstBase.PushSrc):
     # GST function
     def do_set_property(self, prop: GObject.GParamSpec, value):
         Gst.info(f"Setting {prop.name} = {value}")
-        if prop.name == "exposure-time":
+        if prop.name == "auto-exposure":
+            self.auto_exposure = value
+        elif prop.name == "auto-gain":
+            self.auto_gain = value
+        elif prop.name == "exposure":
             self.exposure_time = value
         elif prop.name == "gain":
             self.gain = value
+        elif prop.name == "auto-wb":
+            self.auto_wb = value
         elif prop.name == "wb-blue-ratio":
             self.wb_blue = value
         elif prop.name == "wb-red-ratio":
