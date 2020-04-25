@@ -1,6 +1,7 @@
+import enum
 from dataclasses import dataclass
 import math
-from typing import List, Callable
+from typing import Any, List, Callable
 
 import gi
 
@@ -25,51 +26,11 @@ except ImportError:
     Gst.error("pyspinsrc requires PySpin")
     raise
 
-DEFAULT_AUTO_EXPOSURE = True
-DEFAULT_AUTO_GAIN = True
-DEFAULT_EXPOSURE_TIME = -1
-DEFAULT_GAIN = -1
-DEFAULT_AUTO_WB = True
-DEFAULT_WB_BLUE = -1
-DEFAULT_WB_RED = -1
-DEFAULT_H_BINNING = 1
-DEFAULT_V_BINNING = 1
-DEFAULT_OFFSET_X = 0
-DEFAULT_OFFSET_Y = 0
-DEFAULT_NUM_BUFFERS = 10
-DEFAULT_SERIAL_NUMBER = None
-DEFAULT_LOAD_DEFAULT = True
-
-MILLIESCONDS_PER_NANOSECOND = 1000000
-TIMEOUT_MS = 2000
-
-
-@dataclass
-class PixelFormatType:
-    cap_type: str
-    gst: str
-    genicam: str
-
-
-RAW_CAP_TYPE = "video/x-raw"
-BAYER_CAP_TYPE = "video/x-bayer"
-
-
-SUPPORTED_PIXEL_FORMATS = [
-    PixelFormatType(cap_type=RAW_CAP_TYPE, gst="GRAY8", genicam="Mono8"),
-    #    PixelFormatType(cap_type=RAW_CAP_TYPE, gst="GRAY16_LE", genicam="Mono16"),
-    PixelFormatType(cap_type=RAW_CAP_TYPE, gst="UYVY", genicam="YUV422Packed"),
-    PixelFormatType(cap_type=RAW_CAP_TYPE, gst="YUY2", genicam="YCbCr422_8"),
-    PixelFormatType(cap_type=RAW_CAP_TYPE, gst="RGB", genicam="RGB8"),
-    PixelFormatType(cap_type=RAW_CAP_TYPE, gst="BGR", genicam="BGR8"),
-    PixelFormatType(cap_type=BAYER_CAP_TYPE, gst="rggb", genicam="BayerRG8"),
-    PixelFormatType(cap_type=BAYER_CAP_TYPE, gst="gbrg", genicam="BayerGB8"),
-    PixelFormatType(cap_type=BAYER_CAP_TYPE, gst="bggr", genicam="BayerBG8"),
-    PixelFormatType(cap_type=BAYER_CAP_TYPE, gst="grbg", genicam="BayerGR8"),
-]
-
 
 class ImageAcquirer:
+
+    TIMEOUT_MS = 2000
+
     def __init__(self):
         self._system = PySpin.System.GetInstance()
         self._device_list = self._system.GetCameras()
@@ -150,7 +111,7 @@ class ImageAcquirer:
         return True
 
     def start_acquisition(self):
-        self.set_enum_node_val("AcquisitionMode", "Continuous")
+        self.set_node_val("AcquisitionMode", "Continuous")
         try:
             self._current_device.BeginAcquisition()
         except PySpin.SpinnakerException as ex:
@@ -164,24 +125,8 @@ class ImageAcquirer:
 
     # Convenience method
     def restore_default_settings(self):
-        self.set_enum_node_val("UserSetSelector", "Default")
+        self.set_node_val("UserSetSelector", "Default")
         self.execute_command_node("UserSetLoad")
-
-    # Convenience method
-    def set_frame_rate(self, frame_rate: float, logger: Callable[[str], None] = None):
-        if PySpin.IsAvailable(
-            PySpin.CBooleanPtr(
-                self._get_node_map().GetNode("AcquisitionFrameRateEnable")
-            )
-        ):
-            self.set_bool_node_val("AcquisitionFrameRateEnable", True, logger)
-
-        else:
-            # Camera is an older model
-            self.set_enum_node_val("AcquisitionFrameRateAuto", "Off", logger)
-            self.set_bool_node_val("AcquisitionFrameRateEnabled", True, logger)
-
-        self.set_float_node_val("AcquisitionFrameRate", frame_rate, logger)
 
     def configure_buffer_handling(
         self, num_device_buffers: int = 10, logger: Callable[[str], None] = None
@@ -210,23 +155,97 @@ class ImageAcquirer:
                 f"Max Buffer Count: {self._current_device.TLStream.StreamBufferCountManual.GetMax()}"
             )
 
-    def get_int_node_val(self, node_name: str) -> int:
+    def node_exists(self, node_name: str) -> bool:
+        return self._get_node_map().GetNode(node_name) is not None
 
+    def get_node_val(self, node_name: str) -> Any:
+        node = self._get_node_map().GetNode(node_name)
+        if node is None:
+            raise ValueError(f"{node_name} node is not available")
+        elif "GetPrincipalInterfaceType" not in dir(node):
+            raise ValueError(f"Could not determine the type of node: {node_name}")
+        elif node.GetPrincipalInterfaceType() == PySpin.intfIInteger:
+            return self._get_int_node_val(node_name)
+        elif node.GetPrincipalInterfaceType() == PySpin.intfIFloat:
+            return self._get_float_node_val(node_name)
+        elif node.GetPrincipalInterfaceType() == PySpin.intfIBoolean:
+            return self._get_bool_node_val(node_name)
+        elif node.GetPrincipalInterfaceType() == PySpin.intfIEnumeration:
+            return self._get_enum_node_val(node_name)
+        elif node.GetPrincipalInterfaceType() == PySpin.intfIString:
+            raise NotImplementedError("No getter implemented for string nodes")
+        elif node.GetPrincipalInterfaceType() == PySpin.intfICommand:
+            raise NotImplementedError("No getter implemented for command nodes")
+        else:
+            raise ValueError(
+                f"{node_name} node is of unknown type: {node.GetPrincipalInterfaceType()}"
+            )
+
+    def set_node_val(self, node_name: str, value: Any):
+        node = self._get_node_map().GetNode(node_name)
+        if node is None:
+            raise ValueError(f"{node_name} node is not available")
+        elif "GetPrincipalInterfaceType" not in dir(node):
+            raise ValueError(f"Could not determine the type of node: {node_name}")
+        elif node.GetPrincipalInterfaceType() == PySpin.intfIInteger:
+            return self._set_int_node_val(node_name, value)
+        elif node.GetPrincipalInterfaceType() == PySpin.intfIFloat:
+            return self._set_float_node_val(node_name, value)
+        elif node.GetPrincipalInterfaceType() == PySpin.intfIBoolean:
+            return self._set_bool_node_val(node_name, value)
+        elif node.GetPrincipalInterfaceType() == PySpin.intfIEnumeration:
+            return self._set_enum_node_val(node_name, value)
+        elif node.GetPrincipalInterfaceType() == PySpin.intfIString:
+            raise NotImplementedError("No setter implemented for string nodes")
+        elif node.GetPrincipalInterfaceType() == PySpin.intfICommand:
+            raise NotImplementedError("No setter implemented for command nodes")
+        else:
+            raise ValueError(
+                f"{node_name} node is of unknown type: {node.GetPrincipalInterfaceType()}"
+            )
+
+    def get_node_range(self, node_name: str) -> (Any, Any):
+        node = self._get_node_map().GetNode(node_name)
+        if node is None:
+            raise ValueError(f"{node_name} node is not available")
+        elif "GetPrincipalInterfaceType" not in dir(node):
+            raise ValueError(f"Could not determine the type of node: {node_name}")
+        elif node.GetPrincipalInterfaceType() == PySpin.intfIInteger:
+            return self._get_int_node_range(node_name)
+        elif node.GetPrincipalInterfaceType() == PySpin.intfIFloat:
+            return self._get_float_node_range(node_name)
+        else:
+            raise ValueError(
+                f"Range not available for {node_name} node of type: {node.GetPrincipalInterfaceType()}"
+            )
+
+    def get_node_entries(self, node_name: str) -> List[Any]:
+        node = self._get_node_map().GetNode(node_name)
+        if node is None:
+            raise ValueError(f"{node_name} node is not available")
+        elif "GetPrincipalInterfaceType" not in dir(node):
+            raise ValueError(f"Could not determine the type of node: {node_name}")
+        elif node.GetPrincipalInterfaceType() == PySpin.intfIEnumeration:
+            return self._get_available_enum_entries(node_name)
+        else:
+            raise ValueError(
+                f"Range not available for {node_name} node of type: {node.GetPrincipalInterfaceType()}"
+            )
+
+    def _get_int_node_val(self, node_name: str) -> int:
         int_node = PySpin.CIntegerPtr(self._get_node_map().GetNode(node_name))
         if not PySpin.IsAvailable(int_node) or not PySpin.IsReadable(int_node):
             raise ValueError(f"Integer node '{node_name}' is not readable")
         return int_node.GetValue()
 
-    def get_int_node_range(self, node_name: str) -> (int, int):
+    def _get_int_node_range(self, node_name: str) -> (int, int):
         int_node = PySpin.CIntegerPtr(self._get_node_map().GetNode(node_name))
         if not PySpin.IsAvailable(int_node) or not PySpin.IsReadable(int_node):
             raise ValueError(f"Integer node '{node_name}' is not writable")
 
         return (int_node.GetMin(), int_node.GetMax())
 
-    def set_int_node_val(
-        self, node_name: str, value: int, logger: Callable[[str], None] = None
-    ):
+    def _set_int_node_val(self, node_name: str, value: int):
 
         int_node = PySpin.CIntegerPtr(self._get_node_map().GetNode(node_name))
         if not PySpin.IsAvailable(int_node) or not PySpin.IsWritable(int_node):
@@ -237,24 +256,19 @@ class ImageAcquirer:
 
         int_node.SetValue(int(value))
 
-        if logger:
-            logger(f"{node_name} = {self.get_int_node_val(node_name)}")
-
-    def get_float_node_val(self, node_name: str) -> (float, float):
+    def _get_float_node_val(self, node_name: str) -> (float, float):
         float_node = PySpin.CFloatPtr(self._get_node_map().GetNode(node_name))
         if not PySpin.IsAvailable(float_node) or not PySpin.IsReadable(float_node):
             raise ValueError(f"Float node '{node_name}' is not readable")
         return float_node.GetValue()
 
-    def get_float_node_range(self, node_name: str) -> (int, int):
+    def _get_float_node_range(self, node_name: str) -> (int, int):
         float_node = PySpin.CFloatPtr(self._get_node_map().GetNode(node_name))
         if not PySpin.IsAvailable(float_node) or not PySpin.IsReadable(float_node):
             raise ValueError(f"Float node '{node_name}' is not readable")
         return (float_node.GetMin(), float_node.GetMax())
 
-    def set_float_node_val(
-        self, node_name: str, value: float, logger: Callable[[str], None] = None
-    ):
+    def _set_float_node_val(self, node_name: str, value: float):
         float_node = PySpin.CFloatPtr(self._get_node_map().GetNode(node_name))
         if not PySpin.IsAvailable(float_node) or not PySpin.IsWritable(float_node):
             raise ValueError(f"Float node '{node_name}' is not writable")
@@ -263,33 +277,25 @@ class ImageAcquirer:
         value = min(value, float_node.GetMax())
         float_node.SetValue(float(value))
 
-        if logger:
-            logger(f"{node_name} = {self.get_float_node_val(node_name)}")
-
-    def get_bool_node_val(self, node_name: str) -> bool:
+    def _get_bool_node_val(self, node_name: str) -> bool:
         bool_node = PySpin.CBooleanPtr(self._get_node_map().GetNode(node_name))
         if not PySpin.IsAvailable(bool_node) or not PySpin.IsReadable(bool_node):
             raise ValueError(f"Boolean node '{node_name}' is not readable")
         return bool_node.GetValue()
 
-    def set_bool_node_val(
-        self, node_name: str, value: bool, logger: Callable[[str], None] = None
-    ):
+    def _set_bool_node_val(self, node_name: str, value: bool):
         bool_node = PySpin.CBooleanPtr(self._get_node_map().GetNode(node_name))
         if not PySpin.IsAvailable(bool_node) or not PySpin.IsWritable(bool_node):
             raise ValueError(f"Boolean node '{node_name}' is not writable")
 
         bool_node.SetValue(bool(value))
 
-        if logger:
-            logger(f"{node_name} = {self.get_bool_node_val(node_name)}")
-
     def enum_node_available(self, node_name: str) -> bool:
         return PySpin.IsAvailable(
             PySpin.CEnumerationPtr(self._get_node_map().GetNode(node_name))
         )
 
-    def get_available_enum_entries(self, node_name: str) -> List[str]:
+    def _get_available_enum_entries(self, node_name: str) -> List[str]:
         enum_node = PySpin.CEnumerationPtr(self._get_node_map().GetNode(node_name))
         if not PySpin.IsAvailable(enum_node) or not PySpin.IsReadable(enum_node):
             raise ValueError(f"Enumeration node '{node_name}' is not readable")
@@ -302,22 +308,20 @@ class ImageAcquirer:
 
         return available_entries
 
-    def get_enum_node_val(self, node_name: str) -> str:
+    def _get_enum_node_val(self, node_name: str) -> str:
 
         enum_node = PySpin.CEnumerationPtr(self._get_node_map().GetNode(node_name))
         if not PySpin.IsAvailable(enum_node) or not PySpin.IsReadable(enum_node):
             raise ValueError(f"Enumeration node '{node_name}' is not readable")
         return enum_node.GetCurrentEntry().GetSymbolic()
 
-    def set_enum_node_val(
-        self, node_name: str, value: str, logger: Callable[[str], None] = None
-    ):
+    def _set_enum_node_val(self, node_name: str, value: str):
 
         enum_node = PySpin.CEnumerationPtr(self._get_node_map().GetNode(node_name))
         if not PySpin.IsAvailable(enum_node) or not PySpin.IsWritable(enum_node):
             raise ValueError(f"Enumeration node '{node_name}' is not writable")
 
-        enum_entry = enum_node.GetEntryByName(value)
+        enum_entry = enum_node.GetEntryByName(str(value))
         if not PySpin.IsAvailable(enum_entry) or not PySpin.IsReadable(enum_entry):
             raise ValueError(
                 f"Entry '{value}' for enumeration node '{node_name}' is not available"
@@ -325,20 +329,12 @@ class ImageAcquirer:
 
         enum_node.SetIntValue(enum_entry.GetValue())
 
-        if logger:
-            logger(f"{node_name} = {self.get_enum_node_val(node_name)}")
-
-    def execute_command_node(
-        self, node_name: str, logger: Callable[[str], None] = None
-    ):
+    def execute_command_node(self, node_name: str):
         command_node = PySpin.CCommandPtr(self._get_node_map().GetNode(node_name))
         if not PySpin.IsAvailable(command_node) or not PySpin.IsWritable(command_node):
             raise ValueError(f"Error: Command node '{node_name}' is not writable")
 
         command_node.Execute()
-
-        if logger:
-            logger(f"{node_name} executed")
 
     def get_next_image(self, logger: Callable[[str], None] = None) -> (np.ndarray, int):
         spinnaker_image = None
@@ -347,7 +343,7 @@ class ImageAcquirer:
 
             # Grab a buffered image from the camera
             try:
-                spinnaker_image = self._current_device.GetNextImage(TIMEOUT_MS)
+                spinnaker_image = self._current_device.GetNextImage(self.TIMEOUT_MS)
             except PySpin.SpinnakerException as ex:
                 if logger:
                     logger(f"Error: {ex}")
@@ -372,6 +368,23 @@ class ImageAcquirer:
 class PySpinSrc(GstBase.PushSrc):
 
     GST_PLUGIN_NAME = "pyspinsrc"
+
+    DEFAULT_AUTO_EXPOSURE = True
+    DEFAULT_AUTO_GAIN = True
+    DEFAULT_EXPOSURE_TIME = -1
+    DEFAULT_GAIN = -1
+    DEFAULT_AUTO_WB = True
+    DEFAULT_WB_BLUE = -1
+    DEFAULT_WB_RED = -1
+    DEFAULT_H_BINNING = 1
+    DEFAULT_V_BINNING = 1
+    DEFAULT_OFFSET_X = 0
+    DEFAULT_OFFSET_Y = 0
+    DEFAULT_NUM_BUFFERS = 10
+    DEFAULT_SERIAL_NUMBER = None
+    DEFAULT_LOAD_DEFAULT = True
+
+    MILLISECONDS_PER_NANOSECOND = 1000000
 
     __gstmetadata__ = ("pyspinsrc", "Src", "PySpin src element", "Brian Ofrim")
 
@@ -498,6 +511,28 @@ class PySpinSrc(GstBase.PushSrc):
         ),
     }
 
+    @dataclass
+    class PixelFormatType:
+        cap_type: str
+        gst: str
+        genicam: str
+
+    RAW_CAP_TYPE = "video/x-raw"
+    BAYER_CAP_TYPE = "video/x-bayer"
+
+    SUPPORTED_PIXEL_FORMATS = [
+        PixelFormatType(cap_type=RAW_CAP_TYPE, gst="GRAY8", genicam="Mono8"),
+        #    PixelFormatType(cap_type=RAW_CAP_TYPE, gst="GRAY16_LE", genicam="Mono16"),
+        PixelFormatType(cap_type=RAW_CAP_TYPE, gst="UYVY", genicam="YUV422Packed"),
+        PixelFormatType(cap_type=RAW_CAP_TYPE, gst="YUY2", genicam="YCbCr422_8"),
+        PixelFormatType(cap_type=RAW_CAP_TYPE, gst="RGB", genicam="RGB8"),
+        PixelFormatType(cap_type=RAW_CAP_TYPE, gst="BGR", genicam="BGR8"),
+        PixelFormatType(cap_type=BAYER_CAP_TYPE, gst="rggb", genicam="BayerRG8"),
+        PixelFormatType(cap_type=BAYER_CAP_TYPE, gst="gbrg", genicam="BayerGB8"),
+        PixelFormatType(cap_type=BAYER_CAP_TYPE, gst="bggr", genicam="BayerBG8"),
+        PixelFormatType(cap_type=BAYER_CAP_TYPE, gst="grbg", genicam="BayerGR8"),
+    ]
+
     # GST function
     def __init__(self):
         super(PySpinSrc, self).__init__()
@@ -506,24 +541,24 @@ class PySpinSrc(GstBase.PushSrc):
         self.info = GstVideo.VideoInfo()
 
         # Properties
-        self.auto_exposure: bool = DEFAULT_AUTO_EXPOSURE
-        self.auto_gain: bool = DEFAULT_AUTO_GAIN
-        self.exposure_time: float = DEFAULT_EXPOSURE_TIME
-        self.gain: float = DEFAULT_GAIN
-        self.auto_wb: bool = DEFAULT_AUTO_WB
-        self.wb_blue: float = DEFAULT_WB_BLUE
-        self.wb_red: float = DEFAULT_WB_RED
-        self.h_binning: int = DEFAULT_H_BINNING
-        self.v_binning: int = DEFAULT_V_BINNING
-        self.offset_x: int = DEFAULT_OFFSET_X
-        self.offset_y: int = DEFAULT_OFFSET_Y
-        self.num_cam_buffers: int = DEFAULT_NUM_BUFFERS
-        self.serial: str = DEFAULT_SERIAL_NUMBER
-        self.load_defaults: bool = DEFAULT_LOAD_DEFAULT
+        self.auto_exposure: bool = self.DEFAULT_AUTO_EXPOSURE
+        self.auto_gain: bool = self.DEFAULT_AUTO_GAIN
+        self.exposure_time: float = self.DEFAULT_EXPOSURE_TIME
+        self.gain: float = self.DEFAULT_GAIN
+        self.auto_wb: bool = self.DEFAULT_AUTO_WB
+        self.wb_blue: float = self.DEFAULT_WB_BLUE
+        self.wb_red: float = self.DEFAULT_WB_RED
+        self.h_binning: int = self.DEFAULT_H_BINNING
+        self.v_binning: int = self.DEFAULT_V_BINNING
+        self.offset_x: int = self.DEFAULT_OFFSET_X
+        self.offset_y: int = self.DEFAULT_OFFSET_Y
+        self.num_cam_buffers: int = self.DEFAULT_NUM_BUFFERS
+        self.serial: str = self.DEFAULT_SERIAL_NUMBER
+        self.load_defaults: bool = self.DEFAULT_LOAD_DEFAULT
 
         self.camera_caps = None
 
-        self.image_acquirer: ImageAcquirer = ImageAcquirer()
+        self.image_acquirer: ImageAcquirer = None
 
         # Buffer timing
         self.timestamp_offset: int = 0
@@ -533,57 +568,49 @@ class PySpinSrc(GstBase.PushSrc):
         self.set_live(True)
         self.set_format(Gst.Format.TIME)
 
-    def get_format_from_genicam(self, genicam_format: str) -> PixelFormatType:
+    def get_format_from_genicam(self, genicam_format: str) -> "PixelFormatType":
         return next(
             (
                 f
-                for f in SUPPORTED_PIXEL_FORMATS
+                for f in self.SUPPORTED_PIXEL_FORMATS
                 if f.genicam.lower() == genicam_format.lower()
             ),
             None,
         )
 
-    def get_format_from_gst(self, gst_format: str) -> PixelFormatType:
+    def get_format_from_gst(self, gst_format: str) -> "PixelFormatType":
         return next(
-            (f for f in SUPPORTED_PIXEL_FORMATS if f.gst.lower() == gst_format.lower()),
+            (
+                f
+                for f in self.SUPPORTED_PIXEL_FORMATS
+                if f.gst.lower() == gst_format.lower()
+            ),
             None,
         )
-
-    # ret val = Height: int, Width: int, OffsetY: int, OffsetX int
-    def get_roi(self) -> (int, int, int, int):
-        return (
-            self.image_acquirer.get_int_node_val("Height"),
-            self.image_acquirer.get_int_node_val("Width"),
-            self.image_acquirer.get_int_node_val("OffsetY"),
-            self.image_acquirer.get_int_node_val("OffsetX"),
-        )
-
-    def set_roi(self, height: int, width: int, offset_y: int = 0, offset_x: int = 0):
-
-        self.image_acquirer.set_int_node_val("Height", height, Gst.info)
-        self.image_acquirer.set_int_node_val("Width", width, Gst.info)
-        self.image_acquirer.set_int_node_val("OffsetY", offset_y, Gst.info)
-        self.image_acquirer.set_int_node_val("OffsetX", offset_x, Gst.info)
-
-    def set_pixel_format(self, gst_pixel_format: str):
-        genicam_format = self.get_format_from_gst(gst_pixel_format).genicam
-        self.image_acquirer.set_enum_node_val("PixelFormat", genicam_format, Gst.info)
 
     def apply_caps_to_cam(self) -> bool:
         Gst.info("Applying caps.")
         try:
 
-            self.set_pixel_format(self.info.finfo.name)
+            genicam_format = self.get_format_from_gst(self.info.finfo.name).genicam
+            self.set_cam_node_val("PixelFormat", genicam_format)
 
-            self.set_roi(
-                self.info.height, self.info.width, self.offset_y, self.offset_x
+            self.set_cam_node_val("Height", self.info.height)
+            self.set_cam_node_val("Width", self.info.width)
+            self.set_cam_node_val("OffsetY", self.offset_y)
+            self.set_cam_node_val("OffsetX", self.offset_x)
+
+            if self.cam_node_exists("AcquisitionFrameRateEnable"):
+                self.set_cam_node_val("AcquisitionFrameRateEnable", True)
+            else:
+                self.set_cam_node_val("AcquisitionFrameRateAuto", "Off")
+                self.set_cam_node_val("AcquisitionFrameRateEnabled", True)
+
+            self.set_cam_node_val(
+                "AcquisitionFrameRate", self.info.fps_n / self.info.fps_d
             )
 
-            self.image_acquirer.set_frame_rate(
-                self.info.fps_n / self.info.fps_d, Gst.info
-            )
-
-        except ValueError as ex:
+        except (ValueError, NotImplementedError) as ex:
             Gst.error(f"Error: {ex}")
             return False
         return True
@@ -597,78 +624,90 @@ class PySpinSrc(GstBase.PushSrc):
             return False
         return True
 
+    def cam_node_exists(self, node_name: str) -> bool:
+        try:
+            return self.image_acquirer.node_exists(node_name)
+        except (ValueError, NotImplementedError) as ex:
+            Gst.warning(f"Warning: {ex}")
+            return False
+
+    def get_cam_node_val(self, node_name: str) -> Any:
+        try:
+            return self.image_acquirer.get_node_val(node_name)
+        except (ValueError, NotImplementedError) as ex:
+            Gst.warning(f"Warning: {ex}")
+            return None
+
+    def set_cam_node_val(self, node_name: str, value, log_value: bool = True):
+        try:
+            self.image_acquirer.set_node_val(node_name, value)
+            if log_value:
+                Gst.info(f"{node_name}: {self.image_acquirer.get_node_val(node_name)}")
+        except (ValueError, NotImplementedError) as ex:
+            Gst.warning(f"Warning: {ex}")
+
+    def get_cam_node_entries(self, node_name: str) -> List[Any]:
+        try:
+            return self.image_acquirer.get_node_entries(node_name)
+        except (ValueError, NotImplementedError) as ex:
+            Gst.warning(f"Warning: {ex}")
+            return []
+
+    def get_cam_node_range(self, node_name: str) -> (Any, Any):
+        try:
+            return self.image_acquirer.get_node_range(node_name)
+        except (ValueError, NotImplementedError) as ex:
+            Gst.warning(f"Warning: {ex}")
+            return (None, None)
+
     # Camera helper function
     def apply_properties_to_cam(self) -> bool:
         Gst.info("Applying properties")
         try:
             # Configure Camera Properties
             if self.h_binning > 1:
-                self.image_acquirer.set_int_node_val(
-                    "BinningHorizontal", self.h_binning, Gst.info
-                )
+                self.set_cam_node_val("BinningHorizontal", self.h_binning)
 
             if self.v_binning > 1:
-                self.image_acquirer.set_int_node_val(
-                    "BinningVertical", self.v_binning, Gst.info
-                )
+                self.set_cam_node_val("BinningVertical", self.v_binning)
 
             if self.exposure_time >= 0:
-                self.image_acquirer.set_enum_node_val("ExposureAuto", "Off", Gst.info)
-                self.image_acquirer.set_float_node_val(
-                    "ExposureTime", self.exposure_time, Gst.info
-                )
+                self.set_cam_node_val("ExposureAuto", "Off")
+                self.set_cam_node_val("ExposureTime", self.exposure_time)
 
             if self.auto_exposure:
-                self.image_acquirer.set_enum_node_val(
-                    "ExposureAuto", "Continuous", Gst.info
-                )
+                self.set_cam_node_val("ExposureAuto", "Continuous")
 
             if self.gain >= 0:
-                self.image_acquirer.set_enum_node_val("GainAuto", "Off", Gst.info)
-                self.image_acquirer.set_float_node_val("Gain", self.gain, Gst.info)
+                self.set_cam_node_val("GainAuto", "Off")
+                self.set_cam_node_val("Gain", self.gain)
 
             if self.auto_gain:
-                self.image_acquirer.set_enum_node_val(
-                    "GainAuto", "Continuous", Gst.info
-                )
+                self.set_cam_node_val("GainAuto", "Continuous")
 
             if (
                 self.image_acquirer.enum_node_available("BalanceWhiteAuto")
                 and self.wb_blue >= 0
             ):
-                self.image_acquirer.set_enum_node_val(
-                    "BalanceWhiteAuto", "Off", Gst.info
-                )
-                self.image_acquirer.set_enum_node_val(
-                    "BalanceRatioSelector", "Blue", Gst.info
-                )
-                self.image_acquirer.set_float_node_val(
-                    "BalanceRatio", self.wb_blue, Gst.info
-                )
+                self.set_cam_node_val("BalanceWhiteAuto", "Off")
+                self.set_cam_node_val("BalanceRatioSelector", "Blue")
+                self.set_cam_node_val("BalanceRatio", self.wb_blue)
 
             if (
                 self.image_acquirer.enum_node_available("BalanceWhiteAuto")
                 and self.wb_red >= 0
             ):
-                self.image_acquirer.set_enum_node_val(
-                    "BalanceWhiteAuto", "Off", Gst.info
-                )
-                self.image_acquirer.set_enum_node_val(
-                    "BalanceRatioSelector", "Red", Gst.info
-                )
-                self.image_acquirer.set_float_node_val(
-                    "BalanceRatio", self.wb_red, Gst.info
-                )
+                self.set_cam_node_val("BalanceWhiteAuto", "Off", Gst.info)
+                self.set_cam_node_val("BalanceRatioSelector", "Red", Gst.info)
+                self.set_cam_node_val("BalanceRatio", self.wb_red, Gst.info)
 
             if (
                 self.image_acquirer.enum_node_available("BalanceWhiteAuto")
                 and self.auto_wb
             ):
-                self.image_acquirer.set_enum_node_val(
-                    "BalanceWhiteAuto", "Continuous", Gst.info
-                )
+                self.set_cam_node_val("BalanceWhiteAuto", "Continuous")
 
-        except ValueError as ex:
+        except Exception as ex:
             Gst.error(f"Error: {ex}")
             return False
 
@@ -678,9 +717,9 @@ class PySpinSrc(GstBase.PushSrc):
     def get_camera_caps(self) -> Gst.Caps:
 
         # Get current pixel format
-        starting_pixel_format = self.image_acquirer.get_enum_node_val("PixelFormat")
+        starting_pixel_format = self.get_cam_node_val("PixelFormat")
 
-        genicam_formats = self.image_acquirer.get_available_enum_entries("PixelFormat")
+        genicam_formats = self.get_cam_node_entries("PixelFormat")
 
         supported_pixel_formats = [
             self.get_format_from_genicam(pf) for pf in genicam_formats
@@ -694,13 +733,11 @@ class PySpinSrc(GstBase.PushSrc):
 
         for pixel_format in supported_pixel_formats:
 
-            self.image_acquirer.set_enum_node_val("PixelFormat", pixel_format.genicam)
+            self.set_cam_node_val("PixelFormat", pixel_format.genicam, False)
 
-            width_min, width_max = self.image_acquirer.get_int_node_range("Width")
-            height_min, height_max = self.image_acquirer.get_int_node_range("Height")
-            fr_min, fr_max = self.image_acquirer.get_float_node_range(
-                "AcquisitionFrameRate"
-            )
+            width_min, width_max = self.get_cam_node_range("Width")
+            height_min, height_max = self.get_cam_node_range("Height")
+            fr_min, fr_max = self.get_cam_node_range("AcquisitionFrameRate")
 
             camera_caps.append_structure(
                 Gst.Structure(
@@ -716,7 +753,7 @@ class PySpinSrc(GstBase.PushSrc):
             )
 
         # Set the pixel format back to the starting format
-        self.image_acquirer.set_enum_node_val("PixelFormat", starting_pixel_format)
+        self.set_cam_node_val("PixelFormat", starting_pixel_format, False)
 
         return camera_caps
 
@@ -758,12 +795,13 @@ class PySpinSrc(GstBase.PushSrc):
     def do_fixate(self, caps: Gst.Caps) -> Gst.Caps:
         Gst.info("Fixating caps")
 
-        current_cam_height, current_cam_width, _, _ = self.get_roi()
-        frame_rate = self.image_acquirer.get_float_node_val("AcquisitionFrameRate")
+        height = self.get_cam_node_val("Height")
+        width = self.get_cam_node_val("Width")
+        frame_rate = self.get_cam_node_val("AcquisitionFrameRate")
 
         structure = caps.get_structure(0).copy()
-        structure.fixate_field_nearest_int("width", current_cam_width)
-        structure.fixate_field_nearest_int("height", current_cam_height)
+        structure.fixate_field_nearest_int("width", width)
+        structure.fixate_field_nearest_int("height", height)
         structure.fixate_field_nearest_fraction("framerate", frame_rate, 1)
 
         new_caps = Gst.Caps.new_empty()
@@ -839,6 +877,8 @@ class PySpinSrc(GstBase.PushSrc):
     def do_start(self) -> bool:
         Gst.info("Starting")
         try:
+            self.image_acquirer = ImageAcquirer()
+
             if not self.image_acquirer.init_device(
                 device_serial=self.serial,
                 device_index=(0 if self.serial is None else None),
@@ -855,7 +895,7 @@ class PySpinSrc(GstBase.PushSrc):
                 return False
 
             self.camera_caps = self.get_camera_caps()
-        except ValueError as ex:
+        except Exception as ex:
             Gst.error(f"Error: {ex}")
             return False
         return True
@@ -891,7 +931,7 @@ class PySpinSrc(GstBase.PushSrc):
 
         image_buffer = gst_buffer_with_pad_to_ndarray(buffer, self.srcpad)
 
-        image_array, image_timestamp = self.image_acquirer.get_next_image(
+        image_array, image_timestamp_ns = self.image_acquirer.get_next_image(
             logger=Gst.warning
         )
 
@@ -901,17 +941,17 @@ class PySpinSrc(GstBase.PushSrc):
         image_buffer[:] = image_array
 
         if self.timestamp_offset == 0:
-            self.timestamp_offset = image_timestamp
-            self.previous_timestamp = image_timestamp
+            self.timestamp_offset = image_timestamp_ns
+            self.previous_timestamp = image_timestamp_ns
 
-        buffer.pts = image_timestamp - self.timestamp_offset
-        buffer.duration = image_timestamp - self.previous_timestamp
+        buffer.pts = image_timestamp_ns - self.timestamp_offset
+        buffer.duration = image_timestamp_ns - self.previous_timestamp
 
-        self.previous_timestamp = image_timestamp
+        self.previous_timestamp = image_timestamp_ns
 
         Gst.log(
             f"Sending buffer of size: {image_buffer.shape} "
-            f"timestamp offset: {buffer.pts // MILLIESCONDS_PER_NANOSECOND}ms"
+            f"timestamp offset: {buffer.pts // self.MILLISECONDS_PER_NANOSECOND}ms"
         )
 
         return Gst.FlowReturn.OK
