@@ -159,19 +159,19 @@ class ImageAcquirer:
         return self._get_node_map().GetNode(node_name) is not None
 
     def get_node_val(self, node_name: str) -> Any:
-        node = self._get_node_map().GetNode(node_name)
+        node: PySpin.INode = self._get_node_map().GetNode(node_name)
         if node is None:
             raise ValueError(f"{node_name} node is not available")
         elif "GetPrincipalInterfaceType" not in dir(node):
             raise ValueError(f"Could not determine the type of node: {node_name}")
         elif node.GetPrincipalInterfaceType() == PySpin.intfIInteger:
-            return self._get_int_node_val(node_name)
+            return self._get_int_node_val(PySpin.CIntegerPtr(node))
         elif node.GetPrincipalInterfaceType() == PySpin.intfIFloat:
-            return self._get_float_node_val(node_name)
+            return self._get_float_node_val(PySpin.CFloatPtr(node))
         elif node.GetPrincipalInterfaceType() == PySpin.intfIBoolean:
-            return self._get_bool_node_val(node_name)
+            return self._get_bool_node_val(PySpin.CBooleanPtr(node))
         elif node.GetPrincipalInterfaceType() == PySpin.intfIEnumeration:
-            return self._get_enum_node_val(node_name)
+            return self._get_enum_node_val(PySpin.CEnumerationPtr(node))
         elif node.GetPrincipalInterfaceType() == PySpin.intfIString:
             raise NotImplementedError("No getter implemented for string nodes")
         elif node.GetPrincipalInterfaceType() == PySpin.intfICommand:
@@ -182,19 +182,19 @@ class ImageAcquirer:
             )
 
     def set_node_val(self, node_name: str, value: Any):
-        node = self._get_node_map().GetNode(node_name)
+        node: PySpin.INode = self._get_node_map().GetNode(node_name)
         if node is None:
             raise ValueError(f"{node_name} node is not available")
         elif "GetPrincipalInterfaceType" not in dir(node):
             raise ValueError(f"Could not determine the type of node: {node_name}")
         elif node.GetPrincipalInterfaceType() == PySpin.intfIInteger:
-            return self._set_int_node_val(node_name, value)
+            return self._set_int_node_val(PySpin.CIntegerPtr(node), value)
         elif node.GetPrincipalInterfaceType() == PySpin.intfIFloat:
-            return self._set_float_node_val(node_name, value)
+            return self._set_float_node_val(PySpin.CFloatPtr(node), value)
         elif node.GetPrincipalInterfaceType() == PySpin.intfIBoolean:
-            return self._set_bool_node_val(node_name, value)
+            return self._set_bool_node_val(PySpin.CBooleanPtr(node), value)
         elif node.GetPrincipalInterfaceType() == PySpin.intfIEnumeration:
-            return self._set_enum_node_val(node_name, value)
+            return self._set_enum_node_val(PySpin.CEnumerationPtr(node), value)
         elif node.GetPrincipalInterfaceType() == PySpin.intfIString:
             raise NotImplementedError("No setter implemented for string nodes")
         elif node.GetPrincipalInterfaceType() == PySpin.intfICommand:
@@ -205,88 +205,94 @@ class ImageAcquirer:
             )
 
     def get_node_range(self, node_name: str) -> (Any, Any):
-        node = self._get_node_map().GetNode(node_name)
+        node: PySpin.INode = self._get_node_map().GetNode(node_name)
         if node is None:
             raise ValueError(f"{node_name} node is not available")
         elif "GetPrincipalInterfaceType" not in dir(node):
             raise ValueError(f"Could not determine the type of node: {node_name}")
         elif node.GetPrincipalInterfaceType() == PySpin.intfIInteger:
-            return self._get_int_node_range(node_name)
+            return self._get_int_node_range(PySpin.CIntegerPtr(node))
         elif node.GetPrincipalInterfaceType() == PySpin.intfIFloat:
-            return self._get_float_node_range(node_name)
+            return self._get_float_node_range(PySpin.CFloatPtr(node))
         else:
             raise ValueError(
                 f"Range not available for {node_name} node of type: {node.GetPrincipalInterfaceType()}"
             )
 
     def get_node_entries(self, node_name: str) -> List[Any]:
-        node = self._get_node_map().GetNode(node_name)
+        node: PySpin.INode = self._get_node_map().GetNode(node_name)
         if node is None:
             raise ValueError(f"{node_name} node is not available")
         elif "GetPrincipalInterfaceType" not in dir(node):
             raise ValueError(f"Could not determine the type of node: {node_name}")
         elif node.GetPrincipalInterfaceType() == PySpin.intfIEnumeration:
-            return self._get_available_enum_entries(node_name)
+            return self._get_available_enum_entries(PySpin.CEnumerationPtr(node))
         else:
             raise ValueError(
                 f"Range not available for {node_name} node of type: {node.GetPrincipalInterfaceType()}"
             )
 
-    def _get_int_node_val(self, node_name: str) -> int:
-        int_node = PySpin.CIntegerPtr(self._get_node_map().GetNode(node_name))
+    def _get_int_node_val(self, int_node: PySpin.CIntegerPtr) -> int:
         if not PySpin.IsAvailable(int_node) or not PySpin.IsReadable(int_node):
-            raise ValueError(f"Integer node '{node_name}' is not readable")
+            raise ValueError(
+                f"Integer node '{int_node.GetDisplayName()}' is not readable"
+            )
         return int_node.GetValue()
 
-    def _get_int_node_range(self, node_name: str) -> (int, int):
-        int_node = PySpin.CIntegerPtr(self._get_node_map().GetNode(node_name))
+    def _get_int_node_range(self, int_node: PySpin.CIntegerPtr) -> (int, int):
         if not PySpin.IsAvailable(int_node) or not PySpin.IsReadable(int_node):
-            raise ValueError(f"Integer node '{node_name}' is not writable")
-
+            raise ValueError(
+                f"Integer node '{int_node.GetDisplayName()}' is not writable"
+            )
         return (int_node.GetMin(), int_node.GetMax())
 
-    def _set_int_node_val(self, node_name: str, value: int):
-
-        int_node = PySpin.CIntegerPtr(self._get_node_map().GetNode(node_name))
+    def _set_int_node_val(self, int_node: PySpin.CIntegerPtr, value: int):
         if not PySpin.IsAvailable(int_node) or not PySpin.IsWritable(int_node):
-            raise ValueError(f"Integer node '{node_name}' is not writable")
+            raise ValueError(
+                f"Integer node '{int_node.GetDisplayName()}' is not writable"
+            )
 
         value = max(value, int_node.GetMin())
         value = min(value, int_node.GetMax())
 
         int_node.SetValue(int(value))
 
-    def _get_float_node_val(self, node_name: str) -> (float, float):
-        float_node = PySpin.CFloatPtr(self._get_node_map().GetNode(node_name))
+    def _get_float_node_val(self, float_node: PySpin.CFloatPtr) -> (float, float):
         if not PySpin.IsAvailable(float_node) or not PySpin.IsReadable(float_node):
-            raise ValueError(f"Float node '{node_name}' is not readable")
+            raise ValueError(
+                f"Float node '{float_node.GetDisplayName()}' is not readable"
+            )
         return float_node.GetValue()
 
-    def _get_float_node_range(self, node_name: str) -> (int, int):
-        float_node = PySpin.CFloatPtr(self._get_node_map().GetNode(node_name))
+    def _get_float_node_range(self, float_node: PySpin.CFloatPtr) -> (int, int):
         if not PySpin.IsAvailable(float_node) or not PySpin.IsReadable(float_node):
-            raise ValueError(f"Float node '{node_name}' is not readable")
+            raise ValueError(
+                f"Float node '{float_node.GetDisplayName()}' is not readable"
+            )
         return (float_node.GetMin(), float_node.GetMax())
 
-    def _set_float_node_val(self, node_name: str, value: float):
-        float_node = PySpin.CFloatPtr(self._get_node_map().GetNode(node_name))
+    def _set_float_node_val(self, float_node: PySpin.CFloatPtr, value: float):
         if not PySpin.IsAvailable(float_node) or not PySpin.IsWritable(float_node):
-            raise ValueError(f"Float node '{node_name}' is not writable")
+            raise ValueError(
+                f"Float node '{float_node.GetDisplayName()}' is not writable"
+            )
 
         value = max(value, float_node.GetMin())
         value = min(value, float_node.GetMax())
         float_node.SetValue(float(value))
 
-    def _get_bool_node_val(self, node_name: str) -> bool:
-        bool_node = PySpin.CBooleanPtr(self._get_node_map().GetNode(node_name))
+    def _get_bool_node_val(self, bool_node: PySpin.CBooleanPtr) -> bool:
         if not PySpin.IsAvailable(bool_node) or not PySpin.IsReadable(bool_node):
-            raise ValueError(f"Boolean node '{node_name}' is not readable")
+            raise ValueError(
+                f"Boolean node '{bool_node.GetDisplayName()}' is not readable"
+            )
         return bool_node.GetValue()
 
-    def _set_bool_node_val(self, node_name: str, value: bool):
-        bool_node = PySpin.CBooleanPtr(self._get_node_map().GetNode(node_name))
+    def _set_bool_node_val(self, bool_node: PySpin.CBooleanPtr, value: bool):
         if not PySpin.IsAvailable(bool_node) or not PySpin.IsWritable(bool_node):
-            raise ValueError(f"Boolean node '{node_name}' is not writable")
+            raise ValueError(
+                f"Boolean node '{bool_node.GetDisplayName()}' is not writable"
+            )
 
         bool_node.SetValue(bool(value))
 
@@ -295,10 +301,13 @@ class ImageAcquirer:
             PySpin.CEnumerationPtr(self._get_node_map().GetNode(node_name))
         )
 
-    def _get_available_enum_entries(self, node_name: str) -> List[str]:
-        enum_node = PySpin.CEnumerationPtr(self._get_node_map().GetNode(node_name))
+    def _get_available_enum_entries(
+        self, enum_node: PySpin.CEnumerationPtr
+    ) -> List[str]:
         if not PySpin.IsAvailable(enum_node) or not PySpin.IsReadable(enum_node):
-            raise ValueError(f"Enumeration node '{node_name}' is not readable")
+            raise ValueError(
+                f"Enumeration node '{enum_node.GetDisplayName()}' is not readable"
+            )
 
         available_entries = [
             pf.GetName().split("_")[-1]
@@ -308,23 +317,23 @@ class ImageAcquirer:
 
         return available_entries
 
-    def _get_enum_node_val(self, node_name: str) -> str:
-
-        enum_node = PySpin.CEnumerationPtr(self._get_node_map().GetNode(node_name))
+    def _get_enum_node_val(self, enum_node: PySpin.CEnumerationPtr) -> str:
         if not PySpin.IsAvailable(enum_node) or not PySpin.IsReadable(enum_node):
-            raise ValueError(f"Enumeration node '{node_name}' is not readable")
+            raise ValueError(
+                f"Enumeration node '{enum_node.GetDisplayName()}' is not readable"
+            )
         return enum_node.GetCurrentEntry().GetSymbolic()
 
-    def _set_enum_node_val(self, node_name: str, value: str):
-
-        enum_node = PySpin.CEnumerationPtr(self._get_node_map().GetNode(node_name))
+    def _set_enum_node_val(self, enum_node: PySpin.CEnumerationPtr, value: str):
         if not PySpin.IsAvailable(enum_node) or not PySpin.IsWritable(enum_node):
-            raise ValueError(f"Enumeration node '{node_name}' is not writable")
+            raise ValueError(
+                f"Enumeration node '{enum_node.GetDisplayName()}' is not writable"
+            )
 
         enum_entry = enum_node.GetEntryByName(str(value))
         if not PySpin.IsAvailable(enum_entry) or not PySpin.IsReadable(enum_entry):
             raise ValueError(
-                f"Entry '{value}' for enumeration node '{node_name}' is not available"
+                f"Entry '{value}' for enumeration node '{enum_node.GetDisplayName()}' is not available"
             )
 
         enum_node.SetIntValue(enum_entry.GetValue())
