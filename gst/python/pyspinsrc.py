@@ -44,20 +44,6 @@ class ImageAcquirer:
         self._device_list.Clear()
         self._system.ReleaseInstance()
 
-    def _reset_cam(self):
-        if self._current_device is not None and self._current_device.IsValid():
-            if self._current_device.IsStreaming():
-                self._current_device.EndAcquisition()
-            if self._current_device.IsInitialized():
-                self._current_device.DeInit()
-
-        self._device_node_map = None
-        self._tl_device_node_map = None
-        self._tl_stream_node_map = None
-
-        del self._current_device
-        self._current_device = None
-
     def update_device_list(self):
         self._device_list = self._system.GetCameras()
 
@@ -66,37 +52,6 @@ class ImageAcquirer:
             self.update_device_list()
         return self._device_list.GetSize()
 
-    def _get_device_node_map(self) -> PySpin.NodeMap:
-        if (
-            self._current_device is None
-            or not self._current_device.IsValid()
-            or not self._current_device.IsInitialized()
-        ):
-            raise ValueError("No device has been selected and initialied")
-        if self._device_node_map is None:
-            self._device_node_map = self._current_device.GetNodeMap()
-        return self._device_node_map
-
-    def _get_tl_device_node_map(self) -> PySpin.NodeMap:
-        if self._current_device is None or not self._current_device.IsValid():
-            raise ValueError("No device has been selected")
-        if self._tl_device_node_map is None:
-            self._tl_device_node_map = self._current_device.GetTLDeviceNodeMap()
-        return self._tl_device_node_map
-
-    def _get_tl_stream_node_map(self) -> PySpin.NodeMap:
-        if self._current_device is None or not self._current_device.IsValid():
-            raise ValueError("No device has been selected")
-        if self._tl_stream_node_map is None:
-            self._tl_stream_node_map = self._current_device.GetTLStreamNodeMap()
-        return self._tl_stream_node_map
-
-    def _get_device_id(self) -> str:
-        if self._current_device is None or not self._current_device.IsValid():
-            return None
-        return self._current_device.TLDevice.DeviceSerialNumber.GetValue()
-
-    # Camera helper function
     def init_device(self, device_serial: str = None, device_index: int = None,) -> bool:
         # reset cam
         self._reset_cam()
@@ -132,6 +87,20 @@ class ImageAcquirer:
 
         return True
 
+    def _reset_cam(self):
+        if self._current_device is not None and self._current_device.IsValid():
+            if self._current_device.IsStreaming():
+                self._current_device.EndAcquisition()
+            if self._current_device.IsInitialized():
+                self._current_device.DeInit()
+
+        self._device_node_map = None
+        self._tl_device_node_map = None
+        self._tl_stream_node_map = None
+
+        del self._current_device
+        self._current_device = None
+
     def start_acquisition(self):
         self.set_node_val("AcquisitionMode", "Continuous")
         try:
@@ -144,6 +113,61 @@ class ImageAcquirer:
             self._current_device.EndAcquisition()
         except PySpin.SpinnakerException as ex:
             raise ValueError(f"Error: {ex}")
+
+    def get_next_image(self, logger: Callable[[str], None] = None) -> (np.ndarray, int):
+        spinnaker_image = None
+
+        while spinnaker_image is None or spinnaker_image.IsIncomplete():
+
+            spinnaker_image = self._current_device.GetNextImage(self.TIMEOUT_MS)
+
+            if spinnaker_image.IsIncomplete():
+                if logger:
+                    logger(
+                        f"Image incomplete with image status {spinnaker_image.GetImageStatus()}"
+                    )
+                spinnaker_image.Release()
+
+        image_array = spinnaker_image.GetNDArray()
+
+        if image_array.ndim == 2:
+            image_array = np.expand_dims(image_array, axis=2)
+
+        image_timestamp = spinnaker_image.GetTimeStamp()
+
+        spinnaker_image.Release()
+
+        return (image_array, image_timestamp)
+
+    def _get_device_node_map(self) -> PySpin.NodeMap:
+        if (
+            self._current_device is None
+            or not self._current_device.IsValid()
+            or not self._current_device.IsInitialized()
+        ):
+            raise ValueError("No device has been selected and initialied")
+        if self._device_node_map is None:
+            self._device_node_map = self._current_device.GetNodeMap()
+        return self._device_node_map
+
+    def _get_tl_device_node_map(self) -> PySpin.NodeMap:
+        if self._current_device is None or not self._current_device.IsValid():
+            raise ValueError("No device has been selected")
+        if self._tl_device_node_map is None:
+            self._tl_device_node_map = self._current_device.GetTLDeviceNodeMap()
+        return self._tl_device_node_map
+
+    def _get_tl_stream_node_map(self) -> PySpin.NodeMap:
+        if self._current_device is None or not self._current_device.IsValid():
+            raise ValueError("No device has been selected")
+        if self._tl_stream_node_map is None:
+            self._tl_stream_node_map = self._current_device.GetTLStreamNodeMap()
+        return self._tl_stream_node_map
+
+    def _get_device_id(self) -> str:
+        if self._current_device is None or not self._current_device.IsValid():
+            return None
+        return self._current_device.TLDevice.DeviceSerialNumber.GetValue()
 
     def _get_node(self, node_name: str) -> PySpin.INodeMap:
         device_node = self._get_device_node_map().GetNode(node_name)
@@ -357,31 +381,6 @@ class ImageAcquirer:
             raise ValueError(f"Error: Command node '{node_name}' is not writable")
 
         command_node.Execute()
-
-    def get_next_image(self, logger: Callable[[str], None] = None) -> (np.ndarray, int):
-        spinnaker_image = None
-
-        while spinnaker_image is None or spinnaker_image.IsIncomplete():
-
-            spinnaker_image = self._current_device.GetNextImage(self.TIMEOUT_MS)
-
-            if spinnaker_image.IsIncomplete():
-                if logger:
-                    logger(
-                        f"Image incomplete with image status {spinnaker_image.GetImageStatus()}"
-                    )
-                spinnaker_image.Release()
-
-        image_array = spinnaker_image.GetNDArray()
-
-        if image_array.ndim == 2:
-            image_array = np.expand_dims(image_array, axis=2)
-
-        image_timestamp = spinnaker_image.GetTimeStamp()
-
-        spinnaker_image.Release()
-
-        return (image_array, image_timestamp)
 
 
 class PySpinSrc(GstBase.PushSrc):
@@ -654,6 +653,7 @@ class PySpinSrc(GstBase.PushSrc):
         else:
             raise AttributeError("unknown property %s" % prop.name)
 
+    # helper function
     def get_format_from_genicam(self, genicam_format: str) -> "PixelFormatType":
         return next(
             (
@@ -664,6 +664,7 @@ class PySpinSrc(GstBase.PushSrc):
             None,
         )
 
+    # helper function
     def get_format_from_gst(self, gst_format: str) -> "PixelFormatType":
         return next(
             (
@@ -674,6 +675,7 @@ class PySpinSrc(GstBase.PushSrc):
             None,
         )
 
+    # helper function
     def apply_caps_to_cam(self) -> bool:
         Gst.info("Applying caps.")
         try:
@@ -701,6 +703,7 @@ class PySpinSrc(GstBase.PushSrc):
             return False
         return True
 
+    # helper function
     def cam_node_available(self, node_name: str) -> bool:
         try:
             return self.image_acquirer.node_available(node_name)
@@ -708,6 +711,7 @@ class PySpinSrc(GstBase.PushSrc):
             Gst.warning(f"Warning: {ex}")
             return False
 
+    # helper function
     def get_cam_node_val(self, node_name: str) -> Any:
         try:
             return self.image_acquirer.get_node_val(node_name)
@@ -715,6 +719,7 @@ class PySpinSrc(GstBase.PushSrc):
             Gst.warning(f"Warning: {ex}")
             return None
 
+    # helper function
     def set_cam_node_val(self, node_name: str, value, log_value: bool = True):
         try:
             self.image_acquirer.set_node_val(node_name, value)
@@ -723,6 +728,7 @@ class PySpinSrc(GstBase.PushSrc):
         except (ValueError, NotImplementedError) as ex:
             Gst.warning(f"Warning: {ex}")
 
+    # helper function
     def execute_cam_node(self, node_name: str, log_execution: bool = True):
         try:
             self.image_acquirer.execute_node(node_name)
@@ -731,6 +737,7 @@ class PySpinSrc(GstBase.PushSrc):
         except (ValueError, NotImplementedError) as ex:
             Gst.warning(f"Warning: {ex}")
 
+    # helper function
     def get_cam_node_entries(self, node_name: str) -> List[Any]:
         try:
             return self.image_acquirer.get_node_entries(node_name)
@@ -738,6 +745,7 @@ class PySpinSrc(GstBase.PushSrc):
             Gst.warning(f"Warning: {ex}")
             return []
 
+    # helper function
     def get_cam_node_range(self, node_name: str) -> (Any, Any):
         try:
             return self.image_acquirer.get_node_range(node_name)
@@ -745,7 +753,7 @@ class PySpinSrc(GstBase.PushSrc):
             Gst.warning(f"Warning: {ex}")
             return (None, None)
 
-    # Camera helper function
+    # helper function
     def apply_properties_to_cam(self) -> bool:
         Gst.info("Applying properties")
         try:
@@ -797,7 +805,7 @@ class PySpinSrc(GstBase.PushSrc):
 
         return True
 
-    # Camera helper function
+    # helper function
     def get_camera_caps(self) -> Gst.Caps:
 
         # Get current pixel format
@@ -863,6 +871,7 @@ class PySpinSrc(GstBase.PushSrc):
         self.set_blocksize(self.info.size)
         return self.start_streaming()
 
+    # GST function
     def do_get_caps(self, filter: Gst.Caps) -> Gst.Caps:
         Gst.info("Get Caps")
         caps = None
