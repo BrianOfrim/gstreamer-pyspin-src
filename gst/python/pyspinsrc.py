@@ -40,7 +40,6 @@ class ImageAcquirer:
         self._tl_stream_node_map = None
 
     def __del__(self):
-
         self._reset_cam()
         self._device_list.Clear()
         self._system.ReleaseInstance()
@@ -55,6 +54,8 @@ class ImageAcquirer:
         self._device_node_map = None
         self._tl_device_node_map = None
         self._tl_stream_node_map = None
+
+        del self._current_device
         self._current_device = None
 
     def update_device_list(self):
@@ -362,23 +363,20 @@ class ImageAcquirer:
 
         while spinnaker_image is None or spinnaker_image.IsIncomplete():
 
-            # Grab a buffered image from the camera
-            try:
-                spinnaker_image = self._current_device.GetNextImage(self.TIMEOUT_MS)
-            except PySpin.SpinnakerException as ex:
-                if logger:
-                    logger(f"Error: {ex}")
-                return None, None
+            spinnaker_image = self._current_device.GetNextImage(self.TIMEOUT_MS)
 
             if spinnaker_image.IsIncomplete():
-                logger(
-                    f"Image incomplete with image status {spinnaker_image.GetImageStatus()}"
-                )
+                if logger:
+                    logger(
+                        f"Image incomplete with image status {spinnaker_image.GetImageStatus()}"
+                    )
                 spinnaker_image.Release()
 
         image_array = spinnaker_image.GetNDArray()
+
         if image_array.ndim == 2:
             image_array = np.expand_dims(image_array, axis=2)
+
         image_timestamp = spinnaker_image.GetTimeStamp()
 
         spinnaker_image.Release()
@@ -577,15 +575,17 @@ class PySpinSrc(GstBase.PushSrc):
         self.serial: str = self.DEFAULT_SERIAL_NUMBER
         self.user_set: str = self.DEFAULT_USER_SET
 
+        # Camera capabilities
         self.camera_caps = None
 
+        # Image Capture Device
         self.image_acquirer: ImageAcquirer = None
 
         # Buffer timing
         self.timestamp_offset: int = 0
         self.previous_timestamp: int = 0
 
-        # Base class proprties
+        # Base class properties
         self.set_live(True)
         self.set_format(Gst.Format.TIME)
 
@@ -942,31 +942,29 @@ class PySpinSrc(GstBase.PushSrc):
 
     # GST function
     def do_gst_push_src_fill(self, buffer: Gst.Buffer) -> Gst.FlowReturn:
+        try:
+            image_buffer = gst_buffer_with_pad_to_ndarray(buffer, self.srcpad)
+            image_buffer[:], image_timestamp_ns = self.image_acquirer.get_next_image(
+                logger=Gst.warning
+            )
 
-        image_buffer = gst_buffer_with_pad_to_ndarray(buffer, self.srcpad)
+            if self.timestamp_offset == 0:
+                self.timestamp_offset = image_timestamp_ns
+                self.previous_timestamp = image_timestamp_ns
 
-        image_array, image_timestamp_ns = self.image_acquirer.get_next_image(
-            logger=Gst.warning
-        )
+            buffer.pts = image_timestamp_ns - self.timestamp_offset
+            buffer.duration = image_timestamp_ns - self.previous_timestamp
 
-        if image_array is None:
-            return Gst.FlowReturn.ERROR
-
-        image_buffer[:] = image_array
-
-        if self.timestamp_offset == 0:
-            self.timestamp_offset = image_timestamp_ns
             self.previous_timestamp = image_timestamp_ns
 
-        buffer.pts = image_timestamp_ns - self.timestamp_offset
-        buffer.duration = image_timestamp_ns - self.previous_timestamp
+            Gst.log(
+                f"Sending buffer of size: {image_buffer.shape} "
+                f"timestamp offset: {buffer.pts // self.MILLISECONDS_PER_NANOSECOND}ms"
+            )
 
-        self.previous_timestamp = image_timestamp_ns
-
-        Gst.log(
-            f"Sending buffer of size: {image_buffer.shape} "
-            f"timestamp offset: {buffer.pts // self.MILLISECONDS_PER_NANOSECOND}ms"
-        )
+        except Exception as ex:
+            Gst.error(f"Error: {ex}")
+            return Gst.FlowReturn.ERROR
 
         return Gst.FlowReturn.OK
 
