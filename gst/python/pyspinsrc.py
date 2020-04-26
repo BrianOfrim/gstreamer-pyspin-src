@@ -403,7 +403,7 @@ class PySpinSrc(GstBase.PushSrc):
     DEFAULT_OFFSET_Y = 0
     DEFAULT_NUM_BUFFERS = 10
     DEFAULT_SERIAL_NUMBER = None
-    DEFAULT_LOAD_DEFAULT = True
+    DEFAULT_USER_SET = "Default"
 
     MILLISECONDS_PER_NANOSECOND = 1000000
 
@@ -523,11 +523,11 @@ class PySpinSrc(GstBase.PushSrc):
             DEFAULT_SERIAL_NUMBER,
             GObject.ParamFlags.READWRITE,
         ),
-        "load-defaults": (
-            bool,
-            "load default user set",
-            "Apply properties on top of the default settings or on top of current settings",
-            DEFAULT_LOAD_DEFAULT,
+        "user-set": (
+            str,
+            "user set",
+            "User set to apply properties on top of",
+            DEFAULT_USER_SET,
             GObject.ParamFlags.READWRITE,
         ),
     }
@@ -575,7 +575,7 @@ class PySpinSrc(GstBase.PushSrc):
         self.offset_y: int = self.DEFAULT_OFFSET_Y
         self.num_cam_buffers: int = self.DEFAULT_NUM_BUFFERS
         self.serial: str = self.DEFAULT_SERIAL_NUMBER
-        self.load_defaults: bool = self.DEFAULT_LOAD_DEFAULT
+        self.user_set: str = self.DEFAULT_USER_SET
 
         self.camera_caps = None
 
@@ -615,8 +615,8 @@ class PySpinSrc(GstBase.PushSrc):
             return self.num_cam_buffers
         elif prop.name == "serial":
             return self.serial
-        elif prop.name == "load-defaults":
-            return self.load_defaults
+        elif prop.name == "user-set":
+            return self.user_set
         else:
             raise AttributeError("unknown property %s" % prop.name)
 
@@ -649,8 +649,8 @@ class PySpinSrc(GstBase.PushSrc):
             self.num_cam_buffers = value
         elif prop.name == "serial":
             self.serial = value
-        elif prop.name == "load-defaults":
-            self.load_defaults = value
+        elif prop.name == "user-set":
+            self.user_set = value
         else:
             raise AttributeError("unknown property %s" % prop.name)
 
@@ -749,9 +749,8 @@ class PySpinSrc(GstBase.PushSrc):
     def apply_properties_to_cam(self) -> bool:
         Gst.info("Applying properties")
         try:
-            if self.load_defaults:
-                self.set_cam_node_val("UserSetSelector", "Default")
-                self.execute_cam_node("UserSetLoad")
+            self.set_cam_node_val("UserSetSelector", self.user_set)
+            self.execute_cam_node("UserSetLoad")
 
             self.set_cam_node_val("StreamBufferHandlingMode", "OldestFirst")
             self.set_cam_node_val("StreamBufferCountMode", "Manual")
