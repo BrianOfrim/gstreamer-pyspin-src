@@ -35,7 +35,9 @@ class ImageAcquirer:
         self._system = PySpin.System.GetInstance()
         self._device_list = self._system.GetCameras()
         self._current_device = None
-        self._node_map = None
+        self._device_node_map = None
+        self._tl_device_node_map = None
+        self._tl_stream_node_map = None
 
     def __del__(self):
 
@@ -50,8 +52,9 @@ class ImageAcquirer:
             if self._current_device.IsInitialized():
                 self._current_device.DeInit()
 
-        del self._current_device
-        self._node_map = None
+        self._device_node_map = None
+        self._tl_device_node_map = None
+        self._tl_stream_node_map = None
         self._current_device = None
 
     def update_device_list(self):
@@ -62,12 +65,30 @@ class ImageAcquirer:
             self.update_device_list()
         return self._device_list.GetSize()
 
-    def _get_node_map(self) -> PySpin.NodeMap:
+    def _get_device_node_map(self) -> PySpin.NodeMap:
+        if (
+            self._current_device is None
+            or not self._current_device.IsValid()
+            or not self._current_device.IsInitialized()
+        ):
+            raise ValueError("No device has been selected and initialied")
+        if self._device_node_map is None:
+            self._device_node_map = self._current_device.GetNodeMap()
+        return self._device_node_map
+
+    def _get_tl_device_node_map(self) -> PySpin.NodeMap:
         if self._current_device is None or not self._current_device.IsValid():
-            raise ValueError("No device has been selected an initialied")
-        if self._node_map is None:
-            self._node_map = self._current_device.GetNodeMap()
-        return self._node_map
+            raise ValueError("No device has been selected")
+        if self._tl_device_node_map is None:
+            self._tl_device_node_map = self._current_device.GetTLDeviceNodeMap()
+        return self._tl_device_node_map
+
+    def _get_tl_stream_node_map(self) -> PySpin.NodeMap:
+        if self._current_device is None or not self._current_device.IsValid():
+            raise ValueError("No device has been selected")
+        if self._tl_stream_node_map is None:
+            self._tl_stream_node_map = self._current_device.GetTLStreamNodeMap()
+        return self._tl_stream_node_map
 
     def _get_device_id(self) -> str:
         if self._current_device is None or not self._current_device.IsValid():
@@ -123,43 +144,27 @@ class ImageAcquirer:
         except PySpin.SpinnakerException as ex:
             raise ValueError(f"Error: {ex}")
 
-    # Convenience method
-    def restore_default_settings(self):
-        self.set_node_val("UserSetSelector", "Default")
-        self.execute_command_node("UserSetLoad")
+    def _get_node(self, node_name: str) -> PySpin.INodeMap:
+        device_node = self._get_device_node_map().GetNode(node_name)
+        if device_node is not None:
+            return device_node
 
-    def configure_buffer_handling(
-        self, num_device_buffers: int = 10, logger: Callable[[str], None] = None
-    ):
-        # Configure Transport Layer Properties
-        self._current_device.TLStream.StreamBufferHandlingMode.SetValue(
-            PySpin.StreamBufferHandlingMode_OldestFirst
-        )
-        self._current_device.TLStream.StreamBufferCountMode.SetValue(
-            PySpin.StreamBufferCountMode_Manual
-        )
-        self._current_device.TLStream.StreamBufferCountManual.SetValue(
-            num_device_buffers
-        )
-        if logger:
-            logger(
-                f"Buffer Handling Mode: {self._current_device.TLStream.StreamBufferHandlingMode.GetCurrentEntry().GetSymbolic()}"
-            )
-            logger(
-                f"Buffer Count Mode: {self._current_device.TLStream.StreamBufferCountMode.GetCurrentEntry().GetSymbolic()}"
-            )
-            logger(
-                f"Buffer Count: {self._current_device.TLStream.StreamBufferCountManual.GetValue()}"
-            )
-            logger(
-                f"Max Buffer Count: {self._current_device.TLStream.StreamBufferCountManual.GetMax()}"
-            )
+        tl_device_node = self._get_tl_device_node_map().GetNode(node_name)
+        if tl_device_node is not None:
+            return tl_device_node
 
-    def node_exists(self, node_name: str) -> bool:
-        return self._get_node_map().GetNode(node_name) is not None
+        tl_stream_node = self._get_tl_stream_node_map().GetNode(node_name)
+        if tl_stream_node is not None:
+            return tl_stream_node
+
+        return None
+
+    def node_available(self, node_name: str) -> bool:
+        node = self._get_node(node_name)
+        return node is not None and PySpin.IsAvailable(node)
 
     def get_node_val(self, node_name: str) -> Any:
-        node: PySpin.INode = self._get_node_map().GetNode(node_name)
+        node: PySpin.INode = self._get_node(node_name)
         if node is None:
             raise ValueError(f"{node_name} node is not available")
         elif "GetPrincipalInterfaceType" not in dir(node):
@@ -182,7 +187,7 @@ class ImageAcquirer:
             )
 
     def set_node_val(self, node_name: str, value: Any):
-        node: PySpin.INode = self._get_node_map().GetNode(node_name)
+        node: PySpin.INode = self._get_node(node_name)
         if node is None:
             raise ValueError(f"{node_name} node is not available")
         elif "GetPrincipalInterfaceType" not in dir(node):
@@ -204,8 +209,21 @@ class ImageAcquirer:
                 f"{node_name} node is of unknown type: {node.GetPrincipalInterfaceType()}"
             )
 
+    def execute_node(self, node_name: str):
+        node: PySpin.INode = self._get_node(node_name)
+        if node is None:
+            raise ValueError(f"{node_name} node is not available")
+        elif "GetPrincipalInterfaceType" not in dir(node):
+            raise ValueError(f"Could not determine the type of node: {node_name}")
+        elif node.GetPrincipalInterfaceType() == PySpin.intfICommand:
+            self._execute_command_node(node_name)
+        else:
+            raise ValueError(
+                f"{node_name} node is of unknown type: {node.GetPrincipalInterfaceType()}"
+            )
+
     def get_node_range(self, node_name: str) -> (Any, Any):
-        node: PySpin.INode = self._get_node_map().GetNode(node_name)
+        node: PySpin.INode = self._get_node(node_name)
         if node is None:
             raise ValueError(f"{node_name} node is not available")
         elif "GetPrincipalInterfaceType" not in dir(node):
@@ -220,7 +238,7 @@ class ImageAcquirer:
             )
 
     def get_node_entries(self, node_name: str) -> List[Any]:
-        node: PySpin.INode = self._get_node_map().GetNode(node_name)
+        node: PySpin.INode = self._get_node(node_name)
         if node is None:
             raise ValueError(f"{node_name} node is not available")
         elif "GetPrincipalInterfaceType" not in dir(node):
@@ -296,11 +314,6 @@ class ImageAcquirer:
 
         bool_node.SetValue(bool(value))
 
-    def enum_node_available(self, node_name: str) -> bool:
-        return PySpin.IsAvailable(
-            PySpin.CEnumerationPtr(self._get_node_map().GetNode(node_name))
-        )
-
     def _get_available_enum_entries(
         self, enum_node: PySpin.CEnumerationPtr
     ) -> List[str]:
@@ -310,11 +323,10 @@ class ImageAcquirer:
             )
 
         available_entries = [
-            pf.GetName().split("_")[-1]
+            PySpin.CEnumEntryPtr(pf).GetSymbolic()
             for pf in enum_node.GetEntries()
             if PySpin.IsAvailable(pf)
         ]
-
         return available_entries
 
     def _get_enum_node_val(self, enum_node: PySpin.CEnumerationPtr) -> str:
@@ -338,8 +350,8 @@ class ImageAcquirer:
 
         enum_node.SetIntValue(enum_entry.GetValue())
 
-    def execute_command_node(self, node_name: str):
-        command_node = PySpin.CCommandPtr(self._get_node_map().GetNode(node_name))
+    def _execute_command_node(self, node_name: str):
+        command_node = PySpin.CCommandPtr(self._get_node(node_name))
         if not PySpin.IsAvailable(command_node) or not PySpin.IsWritable(command_node):
             raise ValueError(f"Error: Command node '{node_name}' is not writable")
 
@@ -577,6 +589,71 @@ class PySpinSrc(GstBase.PushSrc):
         self.set_live(True)
         self.set_format(Gst.Format.TIME)
 
+    # GST function
+    def do_get_property(self, prop: GObject.GParamSpec):
+        if prop.name == "auto-exposure":
+            return self.auto_exposure
+        elif prop.name == "auto-gain":
+            return self.auto_gain
+        elif prop.name == "exposure":
+            return self.exposure_time
+        elif prop.name == "gain":
+            return self.gain
+        elif prop.name == "auto-wb":
+            return self.auto_wb
+        elif prop.name == "wb-red-ratio":
+            return self.wb_red
+        elif prop.name == "h-binning":
+            return self.h_binning
+        elif prop.name == "v-binning":
+            return self.v_binning
+        elif prop.name == "offset-x":
+            return self.offset_x
+        elif prop.name == "offset-y":
+            return self.offset_y
+        elif prop.name == "num-image-buffers":
+            return self.num_cam_buffers
+        elif prop.name == "serial":
+            return self.serial
+        elif prop.name == "load-defaults":
+            return self.load_defaults
+        else:
+            raise AttributeError("unknown property %s" % prop.name)
+
+    # GST function
+    def do_set_property(self, prop: GObject.GParamSpec, value):
+        Gst.info(f"Setting {prop.name} = {value}")
+        if prop.name == "auto-exposure":
+            self.auto_exposure = value
+        elif prop.name == "auto-gain":
+            self.auto_gain = value
+        elif prop.name == "exposure":
+            self.exposure_time = value
+        elif prop.name == "gain":
+            self.gain = value
+        elif prop.name == "auto-wb":
+            self.auto_wb = value
+        elif prop.name == "wb-blue-ratio":
+            self.wb_blue = value
+        elif prop.name == "wb-red-ratio":
+            self.wb_red = value
+        elif prop.name == "h-binning":
+            self.h_binning = value
+        elif prop.name == "v-binning":
+            self.v_binning = value
+        elif prop.name == "offset-x":
+            self.offset_x = value
+        elif prop.name == "offset-y":
+            self.offset_y = value
+        elif prop.name == "num-image-buffers":
+            self.num_cam_buffers = value
+        elif prop.name == "serial":
+            self.serial = value
+        elif prop.name == "load-defaults":
+            self.load_defaults = value
+        else:
+            raise AttributeError("unknown property %s" % prop.name)
+
     def get_format_from_genicam(self, genicam_format: str) -> "PixelFormatType":
         return next(
             (
@@ -609,7 +686,7 @@ class PySpinSrc(GstBase.PushSrc):
             self.set_cam_node_val("OffsetY", self.offset_y)
             self.set_cam_node_val("OffsetX", self.offset_x)
 
-            if self.cam_node_exists("AcquisitionFrameRateEnable"):
+            if self.cam_node_available("AcquisitionFrameRateEnable"):
                 self.set_cam_node_val("AcquisitionFrameRateEnable", True)
             else:
                 self.set_cam_node_val("AcquisitionFrameRateAuto", "Off")
@@ -624,18 +701,9 @@ class PySpinSrc(GstBase.PushSrc):
             return False
         return True
 
-    # Camera helper function
-    def apply_buffer_handling_properties(self) -> bool:
+    def cam_node_available(self, node_name: str) -> bool:
         try:
-            self.image_acquirer.configure_buffer_handling(self.num_cam_buffers)
-        except ValueError as ex:
-            Gst.error(f"Error: {ex}")
-            return False
-        return True
-
-    def cam_node_exists(self, node_name: str) -> bool:
-        try:
-            return self.image_acquirer.node_exists(node_name)
+            return self.image_acquirer.node_available(node_name)
         except (ValueError, NotImplementedError) as ex:
             Gst.warning(f"Warning: {ex}")
             return False
@@ -652,6 +720,14 @@ class PySpinSrc(GstBase.PushSrc):
             self.image_acquirer.set_node_val(node_name, value)
             if log_value:
                 Gst.info(f"{node_name}: {self.image_acquirer.get_node_val(node_name)}")
+        except (ValueError, NotImplementedError) as ex:
+            Gst.warning(f"Warning: {ex}")
+
+    def execute_cam_node(self, node_name: str, log_execution: bool = True):
+        try:
+            self.image_acquirer.execute_node(node_name)
+            if log_execution:
+                Gst.info(f"{node_name} executed")
         except (ValueError, NotImplementedError) as ex:
             Gst.warning(f"Warning: {ex}")
 
@@ -673,6 +749,14 @@ class PySpinSrc(GstBase.PushSrc):
     def apply_properties_to_cam(self) -> bool:
         Gst.info("Applying properties")
         try:
+            if self.load_defaults:
+                self.set_cam_node_val("UserSetSelector", "Default")
+                self.execute_cam_node("UserSetLoad")
+
+            self.set_cam_node_val("StreamBufferHandlingMode", "OldestFirst")
+            self.set_cam_node_val("StreamBufferCountMode", "Manual")
+            self.set_cam_node_val("StreamBufferCountManual", self.num_cam_buffers)
+
             # Configure Camera Properties
             if self.h_binning > 1:
                 self.set_cam_node_val("BinningHorizontal", self.h_binning)
@@ -694,27 +778,19 @@ class PySpinSrc(GstBase.PushSrc):
             if self.auto_gain:
                 self.set_cam_node_val("GainAuto", "Continuous")
 
-            if (
-                self.image_acquirer.enum_node_available("BalanceWhiteAuto")
-                and self.wb_blue >= 0
-            ):
-                self.set_cam_node_val("BalanceWhiteAuto", "Off")
-                self.set_cam_node_val("BalanceRatioSelector", "Blue")
-                self.set_cam_node_val("BalanceRatio", self.wb_blue)
+            if self.cam_node_available("BalanceWhiteAuto"):
+                if self.wb_blue >= 0:
+                    self.set_cam_node_val("BalanceWhiteAuto", "Off")
+                    self.set_cam_node_val("BalanceRatioSelector", "Blue")
+                    self.set_cam_node_val("BalanceRatio", self.wb_blue)
 
-            if (
-                self.image_acquirer.enum_node_available("BalanceWhiteAuto")
-                and self.wb_red >= 0
-            ):
-                self.set_cam_node_val("BalanceWhiteAuto", "Off", Gst.info)
-                self.set_cam_node_val("BalanceRatioSelector", "Red", Gst.info)
-                self.set_cam_node_val("BalanceRatio", self.wb_red, Gst.info)
+                if self.wb_red >= 0:
+                    self.set_cam_node_val("BalanceWhiteAuto", "Off", Gst.info)
+                    self.set_cam_node_val("BalanceRatioSelector", "Red", Gst.info)
+                    self.set_cam_node_val("BalanceRatio", self.wb_red, Gst.info)
 
-            if (
-                self.image_acquirer.enum_node_available("BalanceWhiteAuto")
-                and self.auto_wb
-            ):
-                self.set_cam_node_val("BalanceWhiteAuto", "Continuous")
+                if self.auto_wb:
+                    self.set_cam_node_val("BalanceWhiteAuto", "Continuous")
 
         except Exception as ex:
             Gst.error(f"Error: {ex}")
@@ -818,71 +894,6 @@ class PySpinSrc(GstBase.PushSrc):
         return new_caps.fixate()
 
     # GST function
-    def do_get_property(self, prop: GObject.GParamSpec):
-        if prop.name == "auto-exposure":
-            return self.auto_exposure
-        elif prop.name == "auto-gain":
-            return self.auto_gain
-        elif prop.name == "exposure":
-            return self.exposure_time
-        elif prop.name == "gain":
-            return self.gain
-        elif prop.name == "auto-wb":
-            return self.auto_wb
-        elif prop.name == "wb-red-ratio":
-            return self.wb_red
-        elif prop.name == "h-binning":
-            return self.h_binning
-        elif prop.name == "v-binning":
-            return self.v_binning
-        elif prop.name == "offset-x":
-            return self.offset_x
-        elif prop.name == "offset-y":
-            return self.offset_y
-        elif prop.name == "num-image-buffers":
-            return self.num_cam_buffers
-        elif prop.name == "serial":
-            return self.serial
-        elif prop.name == "load-defaults":
-            return self.load_defaults
-        else:
-            raise AttributeError("unknown property %s" % prop.name)
-
-    # GST function
-    def do_set_property(self, prop: GObject.GParamSpec, value):
-        Gst.info(f"Setting {prop.name} = {value}")
-        if prop.name == "auto-exposure":
-            self.auto_exposure = value
-        elif prop.name == "auto-gain":
-            self.auto_gain = value
-        elif prop.name == "exposure":
-            self.exposure_time = value
-        elif prop.name == "gain":
-            self.gain = value
-        elif prop.name == "auto-wb":
-            self.auto_wb = value
-        elif prop.name == "wb-blue-ratio":
-            self.wb_blue = value
-        elif prop.name == "wb-red-ratio":
-            self.wb_red = value
-        elif prop.name == "h-binning":
-            self.h_binning = value
-        elif prop.name == "v-binning":
-            self.v_binning = value
-        elif prop.name == "offset-x":
-            self.offset_x = value
-        elif prop.name == "offset-y":
-            self.offset_y = value
-        elif prop.name == "num-image-buffers":
-            self.num_cam_buffers = value
-        elif prop.name == "serial":
-            self.serial = value
-        elif prop.name == "load-defaults":
-            self.load_defaults = value
-        else:
-            raise AttributeError("unknown property %s" % prop.name)
-
-    # GST function
     def do_start(self) -> bool:
         Gst.info("Starting")
         try:
@@ -894,16 +905,11 @@ class PySpinSrc(GstBase.PushSrc):
             ):
                 return False
 
-            if self.load_defaults:
-                self.image_acquirer.restore_default_settings()
-
             if not self.apply_properties_to_cam():
                 return False
 
-            if not self.apply_buffer_handling_properties():
-                return False
-
             self.camera_caps = self.get_camera_caps()
+
         except Exception as ex:
             Gst.error(f"Error: {ex}")
             return False
