@@ -12,7 +12,7 @@ gi.require_version("GstVideo", "1.0")
 
 from gi.repository import Gst, GObject, GLib, GstBase, GstVideo
 
-from gstreamer.utils import gst_buffer_with_pad_to_ndarray
+from gstreamer.gst_hacks import map_gst_buffer
 
 try:
     import numpy as np
@@ -128,10 +128,7 @@ class ImageAcquirer:
                     )
                 spinnaker_image.Release()
 
-        image_array = spinnaker_image.GetNDArray()
-
-        if image_array.ndim == 2:
-            image_array = np.expand_dims(image_array, axis=2)
+        image_array = spinnaker_image.GetData()
 
         image_timestamp = spinnaker_image.GetTimeStamp()
 
@@ -540,7 +537,7 @@ class PySpinSrc(GstBase.PushSrc):
 
     SUPPORTED_PIXEL_FORMATS = [
         PixelFormatType(cap_type=RAW_CAP_TYPE, gst="GRAY8", genicam="Mono8"),
-        #    PixelFormatType(cap_type=RAW_CAP_TYPE, gst="GRAY16_LE", genicam="Mono16"),
+        PixelFormatType(cap_type=RAW_CAP_TYPE, gst="GRAY16_LE", genicam="Mono16"),
         PixelFormatType(cap_type=RAW_CAP_TYPE, gst="UYVY", genicam="YUV422Packed"),
         PixelFormatType(cap_type=RAW_CAP_TYPE, gst="YUY2", genicam="YCbCr422_8"),
         PixelFormatType(cap_type=RAW_CAP_TYPE, gst="RGB", genicam="RGB8"),
@@ -952,10 +949,16 @@ class PySpinSrc(GstBase.PushSrc):
     # GST function
     def do_gst_push_src_fill(self, buffer: Gst.Buffer) -> Gst.FlowReturn:
         try:
-            image_buffer = gst_buffer_with_pad_to_ndarray(buffer, self.srcpad)
-            image_buffer[:], image_timestamp_ns = self.image_acquirer.get_next_image(
+
+            image_array, image_timestamp_ns = self.image_acquirer.get_next_image(
                 logger=Gst.warning
             )
+
+            with map_gst_buffer(buffer, Gst.MapFlags.READ) as mapped:
+                mapped_array = np.ndarray(
+                    image_array.shape, buffer=mapped, dtype=image_array.dtype
+                )
+                mapped_array[:] = image_array
 
             if self.timestamp_offset == 0:
                 self.timestamp_offset = image_timestamp_ns
@@ -967,7 +970,8 @@ class PySpinSrc(GstBase.PushSrc):
             self.previous_timestamp = image_timestamp_ns
 
             Gst.log(
-                f"Sending buffer of size: {image_buffer.shape} "
+                f"Sending buffer of size: {image_array.nbytes} bytes, "
+                f"type: {image_array.dtype}, "
                 f"timestamp offset: {buffer.pts // self.MILLISECONDS_PER_NANOSECOND}ms"
             )
 
