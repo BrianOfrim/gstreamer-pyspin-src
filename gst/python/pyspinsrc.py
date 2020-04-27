@@ -538,6 +538,7 @@ class PySpinSrc(GstBase.PushSrc):
     SUPPORTED_PIXEL_FORMATS = [
         PixelFormatType(cap_type=RAW_CAP_TYPE, gst="GRAY8", genicam="Mono8"),
         PixelFormatType(cap_type=RAW_CAP_TYPE, gst="GRAY16_LE", genicam="Mono16"),
+        PixelFormatType(cap_type=RAW_CAP_TYPE, gst="IYU1", genicam="YUV411Packed"),
         PixelFormatType(cap_type=RAW_CAP_TYPE, gst="UYVY", genicam="YUV422Packed"),
         PixelFormatType(cap_type=RAW_CAP_TYPE, gst="YUY2", genicam="YCbCr422_8"),
         PixelFormatType(cap_type=RAW_CAP_TYPE, gst="v308", genicam="YCbCr8"),
