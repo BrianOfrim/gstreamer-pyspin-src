@@ -37,8 +37,21 @@ Clone this repo and install dependencies:
     source venv/bin/activate
     pip install -U wheel pip setuptools
 
+For x64/amd64 systems:
+
     pip install -r requirements.txt
     pip install <path-to-pyspin-package>\spinnaker_python-2.x.x.x-cp36-cp36m-linux_x86_64.whl
+
+For arm64 systems:
+
+Find a way to install opencv for you device. 
+Eg for Jetson Nano here are instructions to build and install cv2: https://pythops.com/post/compile-deeplearning-libraries-for-jetson-nano  
+Then if you are using a venv copy the cv2 package (likely installed at /usr/local/lib/python3.6/dist-packages/cv2/) to your venv site packages.  
+Then continue with: 
+
+    pip install -r requirements-arm.txt
+    pip install <path-to-pyspin-package>\spinnaker_python-2.x.x.x-cp36-cp36m-linux_aarch64.whl
+
 
 
 ## Usage
@@ -54,12 +67,11 @@ Verify that the installation was successful and view plug-in info and properties
 
 Example debugging pipeline:  
 
-    GST_DEBUG=python:6 gst-launch-1.0 --gst-disable-segtrap --gst-disable-registry-fork pyspinsrc ! videoconvert ! autovideosink
+    GST_DEBUG=python:6 gst-launch-1.0 --gst-disable-segtrap --gst-disable-registry-fork pyspinsrc ! videoconvert ! xvimagesink sync=false
 
 Example pileline:  
 
-    gst-launch-1.0 pyspinsrc ! videoconvert  ! autovideosink
-
+    gst-launch-1.0 pyspinsrc ! videoconvert ! xvimagesink sync=false
 
 
 ## References
