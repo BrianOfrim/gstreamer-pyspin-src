@@ -395,6 +395,8 @@ class PySpinSrc(GstBase.PushSrc):
     DEFAULT_V_BINNING = 1
     DEFAULT_OFFSET_X = 0
     DEFAULT_OFFSET_Y = 0
+    DEFAULT_CENTER_X = True
+    DEFAULT_CENTER_Y = True
     DEFAULT_NUM_BUFFERS = 10
     DEFAULT_SERIAL_NUMBER = None
     DEFAULT_USER_SET = "Default"
@@ -501,6 +503,20 @@ class PySpinSrc(GstBase.PushSrc):
             DEFAULT_OFFSET_Y,
             GObject.ParamFlags.READWRITE,
         ),
+        "center-x": (
+            bool,
+            "center x",
+            "Center the region of interest in the horizontal direction",
+            DEFAULT_CENTER_X,
+            GObject.ParamFlags.READWRITE,
+        ),
+        "center-y": (
+            bool,
+            "center y",
+            "Center the region of interest in the vertical direction",
+            DEFAULT_CENTER_Y,
+            GObject.ParamFlags.READWRITE,
+        ),
         "num-image-buffers": (
             int,
             "number of image buffers",
@@ -571,6 +587,8 @@ class PySpinSrc(GstBase.PushSrc):
         self.v_binning: int = self.DEFAULT_V_BINNING
         self.offset_x: int = self.DEFAULT_OFFSET_X
         self.offset_y: int = self.DEFAULT_OFFSET_Y
+        self.center_x: int = self.DEFAULT_CENTER_X
+        self.center_y: int = self.DEFAULT_CENTER_Y
         self.num_cam_buffers: int = self.DEFAULT_NUM_BUFFERS
         self.serial: str = self.DEFAULT_SERIAL_NUMBER
         self.user_set: str = self.DEFAULT_USER_SET
@@ -611,6 +629,10 @@ class PySpinSrc(GstBase.PushSrc):
             return self.offset_x
         elif prop.name == "offset-y":
             return self.offset_y
+        elif prop.name == "center-x":
+            return self.center_x
+        elif prop.name == "center-y":
+            return self.center_y
         elif prop.name == "num-image-buffers":
             return self.num_cam_buffers
         elif prop.name == "serial":
@@ -645,6 +667,10 @@ class PySpinSrc(GstBase.PushSrc):
             self.offset_x = value
         elif prop.name == "offset-y":
             self.offset_y = value
+        elif prop.name == "center-x":
+            self.center_x = value
+        elif prop.name == "center-y":
+            self.center_y = value
         elif prop.name == "num-image-buffers":
             self.num_cam_buffers = value
         elif prop.name == "serial":
@@ -686,8 +712,30 @@ class PySpinSrc(GstBase.PushSrc):
 
             self.set_cam_node_val("Height", self.info.height)
             self.set_cam_node_val("Width", self.info.width)
-            self.set_cam_node_val("OffsetY", self.offset_y)
-            self.set_cam_node_val("OffsetX", self.offset_x)
+
+            if self.center_y:
+                self.set_cam_node_val(
+                    "OffsetY",
+                    (
+                        self.get_cam_node_range("Height")[1]
+                        - self.get_cam_node_val("Height")
+                    )
+                    // 2,
+                )
+            else:
+                self.set_cam_node_val("OffsetY", self.offset_y)
+
+            if self.center_x:
+                self.set_cam_node_val(
+                    "OffsetX",
+                    (
+                        self.get_cam_node_range("Width")[1]
+                        - self.get_cam_node_val("Width")
+                    )
+                    // 2,
+                )
+            else:
+                self.set_cam_node_val("OffsetX", self.offset_x)
 
             if self.cam_node_available("AcquisitionFrameRateEnable"):
                 self.set_cam_node_val("AcquisitionFrameRateEnable", True)
