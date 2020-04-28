@@ -1,4 +1,4 @@
-# Rough Video Streaming Benchmarks on a Nvidia Jetson Nano
+# Rough Benchmarks on a Nvidia Jetson Nano
 
 ## Using videotestsrc
 
