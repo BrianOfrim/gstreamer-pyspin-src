@@ -17,7 +17,7 @@ Pipeline used:
     GST_DEBUG=2,python:4 gst-launch-1.0 pyspinsrc num-buffers=1000 exposure=10000 auto-exposure=false ! video/x-raw, width=2048, height=1536, format=BGRA, framerate=25/1 ! videoconvert ! video/x-raw, format=BGRx ! nvvidconv ! omxh264enc profile=high bitrate=4000000  ! video/x-h264, profile=high, stream-format=avc ! fakesink -v
 
 Execution ended after 0:00:40.221865195  
-CPU%: 106.9  
+CPU%: 106.9/400  
 Mem%: 7.0  
 
 ### SW encode
@@ -45,7 +45,7 @@ Pipeline used:
     GST_DEBUG=2,python:4 gst-launch-1.0 pyspinsrc num-buffers=1000 exposure=10000 auto-exposure=false ! video/x-raw, width=2048, height=1536, format=BGRA, framerate=25/1 ! videoconvert ! x264enc bitrate=4000 ! video/x-h264, profile=high, stream-format=avc ! h264parse ! mp4mux ! filesink location="pyspinsrc_xh264.mp4" -v
 
 Execution ended after 0:04:41.196435568  
-CPU%:311.6  
+CPU%:311.6/400  
 Mem%:29.8   
 Filesize: 9MB  
 Lots of Skipped frames, video is ~4min 40sec  
