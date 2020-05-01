@@ -14,7 +14,7 @@ Cons:
 
 The following pipeline will write video segments to the current directory as .ts files. It will curate a playlist of the most recent segments.
  
-    GST_DEBUG=2,python:4 gst-launch-1.0 pyspinsrc v-binning=4 h-binning=4 ! video/x-raw, format=BGRA !  videoconvert ! vaapih264enc bitrate=4000 rate-control=cbr ! video/x-h264, profile=high ! h264parse ! mpegtsmux ! hlssink target-duration=5 -v
+    gst-launch-1.0 pyspinsrc v-binning=4 h-binning=4 ! video/x-raw, format=BGRA !  videoconvert ! vaapih264enc bitrate=4000 rate-control=cbr ! video/x-h264, profile=high ! h264parse ! mpegtsmux ! hlssink target-duration=5 -v
 
 If vaapih264enc is not available it can be swapped with a software h264 encoder such as x264enc.
 
@@ -49,7 +49,7 @@ Cons:
 ### Server
 
 
-    GST_DEBUG=2,python:4 gst-launch-1.0 pyspinsrc v-binning=4 h-binning=4 ! video/x-raw, format=BGRA !  videoconvert ! vaapih264enc ! video/x-h264, profile=high ! rtph264pay ! udpsink host=127.0.0.1 port=5000
+    gst-launch-1.0 pyspinsrc v-binning=4 h-binning=4 ! video/x-raw, format=BGRA !  videoconvert ! vaapih264enc ! video/x-h264, profile=high ! rtph264pay ! udpsink host=127.0.0.1 port=5000
 
 Using the the localhost (127.0.0.1) as the host in the above example.
 If vaapih264enc is not available it can be swapped with a software h264 encoder such as x264enc.
@@ -58,16 +58,31 @@ If vaapih264enc is not available it can be swapped with a software h264 encoder 
 
 #### GStreamer client pipeline
 
-    GST_DEBUG=2 gst-launch-1.0 udpsrc port=5000 ! application/x-rtp, encoding-name=H264 ! rtph264depay ! h264parse ! vaapih264dec ! videoconvert ! xvimagesink sync=false
+    gst-launch-1.0 udpsrc port=5000 ! application/x-rtp, encoding-name=H264 ! rtph264depay ! h264parse ! vaapih264dec ! videoconvert ! xvimagesink sync=false
 
-If vaapih264dec is not available it can be swapped with a software h264 decoder such as avdec_h264.
+If vaapih264dec is not available it can be swapped with a software h264 decoder such as avdec_h264.   
 
 
-#### VLC
+#### Using VLC to view RTP Stream
 
-Modified server (not as efficient as above but vlc can understand it more easily):
+Modified server (likely not as efficient as above but vlc can understand it more easily)
 
-    GST_DEBUG=2,python:4 gst-launch-1.0 pyspinsrc v-binning=4 h-binning=4 ! video/x-raw, format=BGRA !  videoconvert ! vaapih264enc ! video/x-h264, profile=high ! mpegtsmux ! rtpmp2tpay ! udpsink host=127.0.0.1 port=5000
+    gst-launch-1.0 pyspinsrc v-binning=4 h-binning=4 ! video/x-raw, format=BGRA !  videoconvert ! vaapih264enc ! video/x-h264, profile=high ! mpegtsmux ! rtpmp2tpay ! udpsink host=127.0.0.1 port=5000
 
 Open VLC -> Media -> Open Network Stream  
-Then enter the host url. Eg rtp://@127.0.0.1:5000 then click play 
+Then enter the host url. Eg rtp://@127.0.0.1:5000 then click play  
+
+#### RTP Multicasting
+
+##### Server  
+
+    gst-launch-1.0 pyspinsrc v-binning=4 h-binning=4 ! video/x-raw, format=BGRA ! videoconvert ! x264enc ! video/x-h264, profile=high ! rtph264pay ! udpsink host=224.1.1.1 port=5000 auto-multicast=true
+
+Multicast host address should be in the IP block 224.X.X.X to 239.X.X.X and the port range 1024 to 65535  
+
+##### Client(s)  
+
+    GST_DEBUG=2 gst-launch-1.0 udpsrc address=224.1.1.1 auto-multicast=true port=5000 ! application/x-rtp, encoding-name=H264 ! rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! xvimagesink sync=false
+
+
+
