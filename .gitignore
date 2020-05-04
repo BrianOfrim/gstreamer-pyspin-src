@@ -104,3 +104,9 @@ ENV/
 
 # mypy
 .mypy_cache/
+
+# pyTorch model states
+*.pt
+
+# label files
+labels.txt
