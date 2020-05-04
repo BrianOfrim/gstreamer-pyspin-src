@@ -28,6 +28,7 @@ class GstPipeline:
         self.user_function = user_function
         self.running = False
         self.gstbuffer = None
+        self.npbuffer = None
         self.sink_size = None
         self.box = None
         self.condition = threading.Condition()
@@ -82,6 +83,8 @@ class GstPipeline:
         if not self.sink_size:
             s = sample.get_caps().get_structure(0)
             self.sink_size = (s.get_value("height"), s.get_value("width"))
+        if self.npbuffer is None:
+            self.npbuffer = np.zeros((*self.sink_size, 3), dtype=np.uint8)
         with self.condition:
             self.gstbuffer = sample.get_buffer()
             self.condition.notify_all()
@@ -100,12 +103,12 @@ class GstPipeline:
             # """Copies data to input tensor."""
             result, mapinfo = gstbuffer.map(Gst.MapFlags.READ)
             if result:
-                np_buffer = np.ndarray(
+                self.npbuffer[:] = np.ndarray(
                     (*self.sink_size, 3), buffer=mapinfo.data, dtype=np.uint8
                 )
                 gstbuffer.unmap(mapinfo)
 
-                svg = self.user_function(np_buffer)
+                svg = self.user_function(self.npbuffer)
                 if svg:
                     if self.overlay:
                         self.overlay.set_property("data", svg)
@@ -193,7 +196,6 @@ def main(args):
             return
 
     label_path = args.label_path
-    lables = []
 
     if label_path is not None:
         if not os.path.isfile(label_path):
@@ -273,7 +275,6 @@ def main(args):
             print(filtered_outputs)
 
             dwg = svgwrite.Drawing("", size=(image_width, image_height))
-            shadow_text(dwg, 10, 20, "Test Text")
 
             for detection in filtered_outputs:
                 bbox = detection[0].tolist()
@@ -282,7 +283,7 @@ def main(args):
                 box_x, box_y = bbox[0], bbox[1]
                 box_width, box_height = bbox[2] - bbox[0], bbox[3] - bbox[1]
 
-                box_text = f"{labels[label_index]} [{100*score}%]"
+                box_text = f"{labels[label_index]} [{(100*score):.2f}%]"
                 shadow_text(dwg, box_x, box_y - 5, box_text)
                 dwg.add(
                     dwg.rect(
