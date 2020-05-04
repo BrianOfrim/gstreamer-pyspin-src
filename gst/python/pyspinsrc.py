@@ -595,6 +595,8 @@ class PySpinSrc(GstBase.PushSrc):
 
         # Camera capabilities
         self.camera_caps = None
+        self.fixed_caps = None
+        self.caps_set: bool = False
 
         # Image Capture Device
         self.image_acquirer: ImageAcquirer = None
@@ -916,9 +918,14 @@ class PySpinSrc(GstBase.PushSrc):
     # GST function
     def do_set_caps(self, caps: Gst.Caps) -> bool:
         Gst.info("Setting caps")
+        if self.caps_set:
+            return True
         self.info.from_caps(caps)
         self.set_blocksize(self.info.size)
-        return self.start_streaming()
+        if not self.start_streaming():
+            return False
+        self.caps_set = True
+        return True
 
     # GST function
     def do_get_caps(self, filter: Gst.Caps) -> Gst.Caps:
@@ -936,19 +943,21 @@ class PySpinSrc(GstBase.PushSrc):
     # GST function
     def do_fixate(self, caps: Gst.Caps) -> Gst.Caps:
         Gst.info("Fixating caps")
+        if self.fixed_caps is None:
 
-        height = self.get_cam_node_val("Height")
-        width = self.get_cam_node_val("Width")
-        frame_rate = self.get_cam_node_val("AcquisitionFrameRate")
+            height = self.get_cam_node_val("Height")
+            width = self.get_cam_node_val("Width")
+            frame_rate = self.get_cam_node_val("AcquisitionFrameRate")
 
-        structure = caps.get_structure(0).copy()
-        structure.fixate_field_nearest_int("width", width)
-        structure.fixate_field_nearest_int("height", height)
-        structure.fixate_field_nearest_fraction("framerate", frame_rate, 1)
+            structure = caps.get_structure(0).copy()
+            structure.fixate_field_nearest_int("width", width)
+            structure.fixate_field_nearest_int("height", height)
+            structure.fixate_field_nearest_fraction("framerate", frame_rate, 1)
 
-        new_caps = Gst.Caps.new_empty()
-        new_caps.append_structure(structure)
-        return new_caps.fixate()
+            new_caps = Gst.Caps.new_empty()
+            new_caps.append_structure(structure)
+            self.fixed_caps = new_caps.fixate()
+        return self.fixed_caps
 
     # GST function
     def do_start(self) -> bool:
