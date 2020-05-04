@@ -81,8 +81,9 @@ class ImageAcquirer:
 
         # Ensure that acquisition is stopped
         try:
-            self.end_acquisition()
-        except ValueError:
+            self.execute_node("AcquisitionStop")
+        except PySpin.SpinnakerException as e:
+            print(e)
             pass
 
         return True
