@@ -162,7 +162,8 @@ def main(args):
         src_frame_rate=args.frame_rate,
         src_height=args.source_height,
         src_width=args.source_width,
-        binning_level=4,
+        binning_level=args.binning_level,
+        image_sink_sub_pipeline=args.sink_pipeline,
     )
 
 
@@ -182,11 +183,20 @@ if __name__ == "__main__":
 
     parser.add_argument("--frame_rate", type=float)
 
+    parser.add_argument("--binning_level", type=int)
+
     parser.add_argument(
         "--threshold",
         type=float,
         default=0.5,
         help="The threshold above which to display predicted bounding boxes",
+    )
+
+    parser.add_argument(
+        "--sink_pipeline",
+        type=str,
+        default="ximagesink sync=false",
+        help="GStreamer pipline section for the image sink",
     )
 
     args = parser.parse_args()
