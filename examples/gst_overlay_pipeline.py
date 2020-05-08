@@ -112,9 +112,14 @@ def run_pipeline(
     src_frame_rate: float = None,
     src_height: int = None,
     src_width: int = None,
+    binning_level: int = 1,
+    image_sink_sub_pipeline: str = "ximagesink sync=false",
 ):
 
     image_src_element = "pyspinsrc"
+    if binning_level != 1:
+        image_src_element += f" h-binning={binning_level} v-binning={binning_level}"
+
     image_src_caps = "video/x-raw,format=RGB"
     if src_frame_rate is not None:
         image_src_caps += f",framerate={src_frame_rate}"
@@ -128,13 +133,11 @@ def run_pipeline(
     appsink_element = "appsink name=appsink emit-signals=true max-buffers=1 drop=true"
     appsink_caps = "video/x-raw,format=RGB"
     leaky_queue = "queue max-size-buffers=1 leaky=downstream"
-
-    image_display_element = "ximagesink sync=false"
     overlay_element = "rsvgoverlay name=overlay"
 
     pipeline = f""" {image_src_element} ! {image_src_caps} ! tee name=t
         t. ! {leaky_queue} ! videoconvert ! {appsink_caps} ! {appsink_element}
-        t. ! {leaky_queue} ! videoconvert ! {overlay_element} ! videoconvert ! {image_display_element}
+        t. ! {leaky_queue} ! videoconvert ! {overlay_element} ! videoconvert ! {image_sink_sub_pipeline}
         """
 
     print("Gstreamer pipeline:\n", pipeline)

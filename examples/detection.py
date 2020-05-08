@@ -1,14 +1,15 @@
 import fnmatch
 import os
-import svgwrite
+import time
 
 import numpy as np
+import svgwrite
 import torch
 import torchvision
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 import torchvision.transforms.functional as F
 
-from overlay import run_pipeline
+from gst_overlay_pipeline import run_pipeline
 
 
 def find_file(name, path) -> str:
@@ -83,32 +84,30 @@ def main(args):
     # Add the background as the first class
     labels.insert(0, "background")
 
-    print("Labels:")
-    print(labels)
+    print(f"Labels: {labels}")
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+    print(f"Running inference on device: {device}")
 
     model = get_model(
         len(labels),
         box_score_thresh=args.threshold,
-        min_size=600,
-        max_size=800,
+        min_size=00,
+        max_size=600,
         box_nms_thresh=0.3,
     )
 
-    print("Loading model state from: %s" % model_path)
+    print(f"Loading model state from: {model_path}")
     checkpoint = torch.load(model_path, map_location=device)
 
-    print(checkpoint.keys())
+    model.load_state_dict(checkpoint["model"] if "model" in checkpoint else checkpoint)
 
-    model.load_state_dict(checkpoint["model"])
-
-    # move model to the right device
     model.to(device)
 
     model.eval()
 
     def user_callback(image_data):
+        print("Entered callback")
 
         with torch.no_grad():
 
@@ -118,10 +117,12 @@ def main(args):
             tensor_image = F.to_tensor(image_data)
             tensor_image = tensor_image.to(device)
 
+            start_time = time.monotonic()
             outputs = model([tensor_image])
             outputs = [
                 {k: v.to(torch.device("cpu")) for k, v in t.items()} for t in outputs
             ]
+            inference_time_ms = (time.monotonic() - start_time) * 1000
 
             # filter out the background labels and scores bellow threshold
             filtered_outputs = [
@@ -136,6 +137,9 @@ def main(args):
             ]
 
             dwg = svgwrite.Drawing("", size=(image_data.shape[1], image_data.shape[0]))
+            draw_text(dwg, 5, 30, f"Infernce time: {inference_time_ms:.2f}ms")
+
+            print(f"Infernce time: {inference_time_ms:.2f}ms")
 
             for detection in filtered_outputs:
                 bbox = detection[0].tolist()
@@ -147,6 +151,10 @@ def main(args):
                 draw_text(dwg, x, y - 5, f"{labels[label_index]} [{(100*score):.2f}%]")
                 draw_rect(dwg, x, y, w, h, stroke_color="red", stroke_width=4)
 
+                print(
+                    f"\t{labels[label_index]}: [{(100*score):.2f}%] @ x={x} y={y} w={w} h={h}"
+                )
+
             return dwg.tostring()
 
     run_pipeline(
@@ -154,6 +162,7 @@ def main(args):
         src_frame_rate=args.frame_rate,
         src_height=args.source_height,
         src_width=args.source_width,
+        binning_level=1,
     )
 
 

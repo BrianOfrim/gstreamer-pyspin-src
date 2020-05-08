@@ -44,11 +44,6 @@ For x64/amd64 systems:
 
 For arm64 systems:
 
-Find a way to install opencv for you device. 
-Eg for Jetson Nano here are instructions to build and install cv2: https://pythops.com/post/compile-deeplearning-libraries-for-jetson-nano  
-Then if you are using a venv, copy the cv2 package (likely installed at /usr/local/lib/python3.6/dist-packages/cv2/) to your venv site packages.  
-Then continue with: 
-
     pip install -r requirements-arm.txt
     pip install <path-to-pyspin-package>\spinnaker_python-2.x.x.x-cp36-cp36m-linux_aarch64.whl
 
