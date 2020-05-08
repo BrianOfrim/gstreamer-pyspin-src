@@ -109,7 +109,7 @@ class GstPipeline:
 
 def run_pipeline(
     user_function,
-    src_frame_rate: float = None,
+    src_frame_rate: int = None,
     src_height: int = None,
     src_width: int = None,
     binning_level: int = 1,
@@ -122,7 +122,7 @@ def run_pipeline(
 
     image_src_caps = "video/x-raw,format=RGB"
     if src_frame_rate is not None:
-        image_src_caps += f",framerate={src_frame_rate}"
+        image_src_caps += f",framerate={int(src_frame_rate)}/1"
 
     if src_height is not None:
         image_src_caps += f",height={src_height}"

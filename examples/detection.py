@@ -107,7 +107,6 @@ def main(args):
     model.eval()
 
     def user_callback(image_data):
-        print("Entered callback")
 
         with torch.no_grad():
 
@@ -181,7 +180,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--source_height", type=int)
 
-    parser.add_argument("--frame_rate", type=float)
+    parser.add_argument("--frame_rate", type=int)
 
     parser.add_argument("--binning_level", type=int)
 
