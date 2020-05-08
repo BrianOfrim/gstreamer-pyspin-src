@@ -92,7 +92,7 @@ def main(args):
     model = get_model(
         len(labels),
         box_score_thresh=args.threshold,
-        min_size=00,
+        min_size=300,
         max_size=600,
         box_nms_thresh=0.3,
     )
@@ -162,7 +162,7 @@ def main(args):
         src_frame_rate=args.frame_rate,
         src_height=args.source_height,
         src_width=args.source_width,
-        binning_level=1,
+        binning_level=4,
     )
 
 
