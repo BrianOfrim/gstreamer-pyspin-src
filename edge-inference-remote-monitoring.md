@@ -36,5 +36,13 @@ To start the stream on the edge device:
 
 
 ## Remote
-On the remote device we will view and save the auto
-To view the stream as well 
+On the remote device we will view and save the augmented live video stream.  
+To view the live stream you can use the following pipeline:  
+
+    $ gst-launch-1.0 udpsrc port=5000 ! application/x-rtp, encoding-name=H264 ! rtph264depay ! h264parse ! vaapih264dec ! videoconvert ! xvimagesink sync=false
+
+Note that vaapih264dec can be replaced with avdec_h264 if the system does not support vaapi.
+
+To view the live stream and also save it to disk you can use [WIP (saving not working)]:
+
+    $ GST_DEBUG=2 gst-launch-1.0 udpsrc port=5000 ! application/x-rtp, encoding-name=H264 ! rtph264depay ! h264parse ! vaapih264dec ! tee name=t t. ! queue ! videoconvert ! xvimagesink sync=false t. ! queue ! videoconvert ! vaapih264enc ! video/x-h264, profile=high, stream-format=avc ! h264parse ! mp4mux ! filesink location="pyspinsrc_vaapi.mp4" sync=false -v
