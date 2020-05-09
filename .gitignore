@@ -110,3 +110,6 @@ ENV/
 
 # label files
 labels.txt
+
+# videos
+*.mp4
