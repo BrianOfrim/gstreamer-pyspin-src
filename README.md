@@ -37,16 +37,17 @@ Clone this repo and install dependencies:
     source venv/bin/activate
     pip install -U wheel pip setuptools
 
-For x64/amd64 systems:
+##### For x64/amd64 systems:
 
     pip install -r requirements.txt
     pip install <path-to-pyspin-package>\spinnaker_python-2.x.x.x-cp36-cp36m-linux_x86_64.whl
 
-For arm64 systems:
+##### For arm64 systems:
 
     pip install -r requirements-arm.txt
     pip install <path-to-pyspin-package>\spinnaker_python-2.x.x.x-cp36-cp36m-linux_aarch64.whl
 
+**Optional:** Find a way to install pytorch and torchvison if you plan on running the object detection example. For Nvidia Jetson devices see: https://elinux.org/Jetson_Zoo
 
 
 ## Usage
@@ -69,8 +70,19 @@ Example pileline:
     gst-launch-1.0 pyspinsrc ! videoconvert ! xvimagesink sync=false
 
 
-## References
+## Benchmarks
+Streaming and saving video on an Nvidia Jetson Nano using hardware or software video encoding: [Jetson Nano Benchmarks](nvidia-jetson-nano-benchmarks.md)
 
+Streaming and saving video on an Laptop with an Intel i5 CPU using hardware (vaapi) or software encoding: [VAAPI Benchmarks](vaapi-benchmarks.md)
+
+## Examples
+Streaming video over a network using HLS, and RTP: [Network Streaming](local-network-streaming.md)
+
+Preforming object detection on an edge device and streaming an augmented video feed to a remote monitoring device: [Detection Stream](edge-inference-remote-monitoring.md)
+
+## References
 Uses the following for gst buffer to numpy mapping utilities and to install [gst-python](https://github.com/GStreamer/gst-python):  
 https://github.com/jackersson/gstreamer-python
 
+Object Detection example inspired by:  
+https://github.com/google-coral/examples-camera/tree/master/gstreamer
