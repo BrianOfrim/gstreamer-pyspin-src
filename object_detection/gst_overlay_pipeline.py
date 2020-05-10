@@ -117,7 +117,7 @@ def run_pipeline(
 ):
 
     image_src_element = "pyspinsrc"
-    if binning_level != 1:
+    if binning_level is not None and binning_level != 1:
         image_src_element += f" h-binning={binning_level} v-binning={binning_level}"
 
     image_src_caps = "video/x-raw,format=RGB"
