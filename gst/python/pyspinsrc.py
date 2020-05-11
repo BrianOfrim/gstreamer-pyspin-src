@@ -597,6 +597,7 @@ class PySpinSrc(GstBase.PushSrc):
         self.camera_caps = None
         self.fixed_caps = None
         self.caps_set: bool = False
+        self.initial_props_set: bool = False
 
         # Image Capture Device
         self.image_acquirer: ImageAcquirer = None
@@ -649,12 +650,24 @@ class PySpinSrc(GstBase.PushSrc):
         Gst.info(f"Setting {prop.name} = {value}")
         if prop.name == "auto-exposure":
             self.auto_exposure = value
+            if self.image_acquirer is not None and self.initial_props_set:
+                self.set_cam_node_val(
+                    "ExposureAuto", "Continuous" if self.auto_exposure else "Off"
+                )
         elif prop.name == "auto-gain":
             self.auto_gain = value
+            if self.image_acquirer is not None and self.initial_props_set:
+                self.set_cam_node_val(
+                    "GainAuto", "Continuous" if self.auto_gain else "Off"
+                )
         elif prop.name == "exposure":
             self.exposure_time = value
+            if self.image_acquirer is not None and self.initial_props_set:
+                self.set_cam_node_val("ExposureTime", self.exposure_time)
         elif prop.name == "gain":
             self.gain = value
+            if self.image_acquirer is not None and self.initial_props_set:
+                self.set_cam_node_val("Gain", self.gain)
         elif prop.name == "auto-wb":
             self.auto_wb = value
         elif prop.name == "wb-blue-ratio":
@@ -974,6 +987,8 @@ class PySpinSrc(GstBase.PushSrc):
             if not self.apply_properties_to_cam():
                 return False
 
+            self.initial_props_set = True
+
             self.camera_caps = self.get_camera_caps()
 
         except Exception as ex:
@@ -985,7 +1000,8 @@ class PySpinSrc(GstBase.PushSrc):
     def do_stop(self) -> bool:
         Gst.info("Stopping")
         try:
-            del self.image_acquirer
+            self.image_acquirer.end_acquisition()
+            self.image_acquirer = None
         except Exception as ex:
             Gst.error(f"Error: {ex}")
         return True
