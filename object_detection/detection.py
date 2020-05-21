@@ -102,9 +102,9 @@ def main(args):
 
     model.load_state_dict(checkpoint["model"] if "model" in checkpoint else checkpoint)
 
-    model.to(device)
-
     model.eval()
+
+    model.to(device)
 
     def user_callback(image_data):
 

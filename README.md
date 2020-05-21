@@ -75,10 +75,15 @@ Streaming and saving video on an Nvidia Jetson Nano using hardware or software v
 
 Streaming and saving video on an Laptop with an Intel i5 CPU using hardware (vaapi) or software encoding: [VAAPI Benchmarks](vaapi-benchmarks.md)
 
-## Examples
+## Use Cases
 Streaming video over a network using HLS, and RTP: [Network Streaming](local-network-streaming.md)
 
 Preforming object detection on an edge device and streaming an augmented video feed to a remote monitoring device: [Detection Stream](edge-inference-remote-monitoring.md)
+
+
+## Examples
+- General object detection: **/object-detection/detection/py**
+- Face detection example: **/object-detection/face-detection.py**  
 
 ## References
 Uses the following for gst buffer to numpy mapping utilities and to install [gst-python](https://github.com/GStreamer/gst-python):  
