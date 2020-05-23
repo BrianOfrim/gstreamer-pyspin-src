@@ -82,8 +82,9 @@ Preforming object detection on an edge device and streaming an augmented video f
 
 
 ## Examples
-- General object detection: **object-detection/detection.py**
-- Face detection example: **object-detection/face-detection.py**  
+- General object detection: **applications/detection.py**  
+- Face detection example: **applications/face-detection.py**  
+- General classification: **applications/classification.py**
 
 ## References
 Uses the following for gst buffer to numpy mapping utilities and to install [gst-python](https://github.com/GStreamer/gst-python):  

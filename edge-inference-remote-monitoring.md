@@ -29,7 +29,7 @@ To start the stream on the edge device:
     $ source setup_util.sh
     $ export GST_DEBUG=2,python:4
     $ export RTP_SINK_PIPELINE="nvvidconv ! omxh264enc profile=high insert-sps-pps=true ! video/x-h264, profile=high, stream-format=avc ! rtph264pay pt=96 config-interval=1 ! udpsink host=10.42.0.25 port=5000"
-    $ python object_detection/detection.py --frame_rate 10 --binning_level 4 --sink_pipeline "${RTP_SINK_PIPELINE}"
+    $ python applications/detection.py --frame_rate 10 --binning_level 4 --sink_pipeline "${RTP_SINK_PIPELINE}"
 
 ## Remote Device
 On the remote device we will view and save the augmented live video stream.  
