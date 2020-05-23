@@ -21,6 +21,7 @@ def draw_text(dwg, x, y, text, font_size=25):
 
 def main(args):
 
+    labels = None
     if args.label_path is not None and os.path.isfile(args.label_path):
         labels = open(args.label_path).read().splitlines()
         print("Number of labels loaded: {labels}")
@@ -50,13 +51,11 @@ def main(args):
         if image_data is None:
             return None
 
-        image_data_pil = Image.fromarray(image_data.astype("uint8"), "RGB")
+        tensor_image = preprocess(Image.fromarray(image_data.astype("uint8"), "RGB"))
 
-        tensor_image = preprocess(image_data_pil)
+        input_batch = tensor_image.unsqueeze(0).to(device)
 
-        input_batch = tensor_image.unsqueeze(0)
-
-        input_batch = input_batch.to(device)
+        # input_batch = input_batch.to(device)
 
         start_time = time.monotonic()
         with torch.no_grad():

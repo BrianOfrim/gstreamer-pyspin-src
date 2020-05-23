@@ -28,6 +28,11 @@ def draw_rect(dwg, x, y, w, h, stroke_color="red", stroke_width=4):
     )
 
 
+def draw_pts(dwg, pts, color="green", rad=5):
+    for pt in pts:
+        dwg.add(dwg.circle(center=(int(pt[0]), int(pt[1])), r=rad, fill=color))
+
+
 def main(args):
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -37,31 +42,30 @@ def main(args):
 
     def user_callback(image_data):
 
-        with torch.no_grad():
+        if image_data is None:
+            return None
 
-            if image_data is None:
-                return None
+        start_time = time.monotonic()
+        boxes, probs, points = mtcnn.detect(image_data, landmarks=True)
+        inference_time_ms = (time.monotonic() - start_time) * 1000
 
-            start_time = time.monotonic()
-            boxes, probs = mtcnn.detect(image_data)
+        dwg = svgwrite.Drawing("", size=(image_data.shape[1], image_data.shape[0]))
+        draw_text(dwg, 5, 30, f"Infernce time: {inference_time_ms:.2f}ms")
 
-            inference_time_ms = (time.monotonic() - start_time) * 1000
+        print(f"Inference time: {inference_time_ms:.2f}ms")
 
-            dwg = svgwrite.Drawing("", size=(image_data.shape[1], image_data.shape[0]))
-            draw_text(dwg, 5, 30, f"Infernce time: {inference_time_ms:.2f}ms")
+        if boxes is not None:
+            for box, prob, pts in zip(boxes, probs, points):
+                if prob < args.threshold:
+                    continue
 
-            print(f"Inference time: {inference_time_ms:.2f}ms")
+                x, y = box[0], box[1]
+                w, h = box[2] - box[0], box[3] - box[1]
 
-            if boxes is not None:
-                for box, prob in zip(boxes, probs):
-                    if prob < args.threshold:
-                        continue
+                draw_rect(dwg, x, y, w, h, stroke_color="red", stroke_width=4)
+                draw_pts(dwg, pts)
 
-                    x, y = box[0], box[1]
-                    w, h = box[2] - box[0], box[3] - box[1]
-
-                    draw_rect(dwg, x, y, w, h, stroke_color="red", stroke_width=4)
-                    print(f"\tx={x} y={y} w={w} h={h} ({(100*prob):.2f}%)")
+                print(f"\tx={x} y={y} w={w} h={h} ({(100*prob):.2f}%)")
 
             return dwg.tostring()
 
@@ -107,6 +111,4 @@ if __name__ == "__main__":
         help="GStreamer pipline section for the image sink",
     )
 
-    args = parser.parse_args()
-
-    main(args)
+    main(parser.parse_args())
