@@ -13,13 +13,8 @@ from gst_overlay_pipeline import run_pipeline
 
 
 def get_model(model_name):
-    return torch.hub.load("pytorch/vision:v0.6.0", model_name, pretrained=True)
-
-
-def draw_text(dwg, x, y, text, font_size=25):
-    dwg.add(
-        dwg.text(text, insert=(x, max(y, font_size)), fill="white", font_size=font_size)
-    )
+    # return torch.hub.load("pytorch/vision:v0.6.0", model_name, pretrained=True)
+    return torchvision.models.segmentation.__dict__[model_name](pretrained=True)
 
 
 def main(args):
@@ -56,42 +51,22 @@ def main(args):
 
         input_batch = tensor_image.unsqueeze(0).to(device)
 
-        # input_batch = input_batch.to(device)
-
         start_time = time.monotonic()
         with torch.no_grad():
             output = model(input_batch)["out"][0]
 
         inference_time_ms = (time.monotonic() - start_time) * 1000
 
-        # print(output.shape)
+        print(f"Inference time: {inference_time_ms}ms")
 
         output_predictions = output.argmax(0)
 
-        # print(output_predictions.shape)
-        # index = output.data.numpy().argmax()
-        # prob = torch.nn.functional.softmax(output[0], dim=0)[index]
-        # label_text = labels[index] if labels and index <= len(labels) else index
-
-        dwg = svgwrite.Drawing("", size=(image_data.shape[1], image_data.shape[0]))
-        # draw_text(dwg, 5, 30, f"Class: {label_text}, {(100* prob): .2f}")
-        draw_text(dwg, 5, 60, f"Inference time: {inference_time_ms:.2f}ms")
-
-        # plot the semantic segmentation predictions of 21 classes in each color
-        r = Image.fromarray(output_predictions.byte().cpu().numpy()).resize(
+        seg_mask = Image.fromarray(output_predictions.byte().cpu().numpy()).resize(
             input_image.size
         )
-        r.putpalette(colors)
+        seg_mask.putpalette(colors)
 
-        mask = Image.new("RGBA", input_image.size, (0, 0, 0, 123))
-
-        overlay_image = Image.composite(r, input_image, mask).convert("RGB")
-
-        cv2.imshow("segmentation", np.array(overlay_image))
-
-        cv2.waitKey(1)
-
-        return dwg.tostring()
+        return seg_mask
 
     run_pipeline(
         user_callback,
@@ -99,6 +74,7 @@ def main(args):
         src_height=args.source_height,
         src_width=args.source_width,
         binning_level=args.binning_level,
+        overlay_element="gdkpixbufoverlay",
         image_sink_sub_pipeline=args.sink_pipeline,
     )
 
@@ -110,7 +86,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        "--model_name", type=str, default="fcn_resnet101", help="The model to load"
+        "--model_name", type=str, default="fcn_resnet50", help="The model to load",
     )
 
     parser.add_argument("--source_width", type=int)

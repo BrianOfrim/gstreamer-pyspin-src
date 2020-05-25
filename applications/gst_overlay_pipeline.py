@@ -22,11 +22,14 @@ class GstPipeline:
         self.running = False
         self.gstbuffer = None
         self.sink_size = None
-        self.box = None
         self.condition = threading.Condition()
 
         self.pipeline = Gst.parse_launch(pipeline)
-        self.overlay = self.pipeline.get_by_name("overlay")
+        self.overlay = self.pipeline.get_by_name("overlay-svg")
+        if self.overlay is None:
+            self.overlay = self.pipeline.get_by_name("overlay-image")
+            self.overlay.set_property("alpha", 0.5)
+
         appsink = self.pipeline.get_by_name("appsink")
         appsink.connect("new-sample", self.on_new_sample)
 
@@ -102,9 +105,13 @@ class GstPipeline:
                 )
                 local_gst_buffer.unmap(mapinfo)
 
-                svg = self.user_function(local_np_buffer)
-                if svg and self.overlay:
-                    self.overlay.set_property("data", svg)
+                overlay = self.user_function(local_np_buffer)
+                if overlay and self.overlay:
+                    if self.overlay.get_name() == "overlay-svg":
+                        self.overlay.set_property("data", overlay)
+                    else:
+                        overlay.save("overlay.png")
+                        self.overlay.set_property("location", "overlay.png")
 
 
 def run_pipeline(
@@ -113,6 +120,7 @@ def run_pipeline(
     src_height: int = None,
     src_width: int = None,
     binning_level: int = 1,
+    overlay_element: str = "rsvgoverlay",
     image_sink_sub_pipeline: str = "ximagesink sync=false",
 ):
 
@@ -133,7 +141,12 @@ def run_pipeline(
     appsink_element = "appsink name=appsink emit-signals=true max-buffers=1 drop=true"
     appsink_caps = "video/x-raw,format=RGB"
     leaky_queue = "queue max-size-buffers=1 leaky=downstream"
-    overlay_element = "rsvgoverlay name=overlay"
+
+    overlay_element += (
+        " name=overlay-svg"
+        if overlay_element == "rsvgoverlay"
+        else " name=overlay-image"
+    )
 
     pipeline = f""" {image_src_element} ! {image_src_caps} ! tee name=t
         t. ! {leaky_queue} ! videoconvert ! {appsink_caps} ! {appsink_element}
