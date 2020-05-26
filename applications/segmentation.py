@@ -2,7 +2,7 @@ import os
 import time
 
 import cv2
-from PIL import Image
+from PIL import Image, ImageMath
 import numpy as np
 import matplotlib.pyplot as plt
 import svgwrite
@@ -15,6 +15,14 @@ from gst_overlay_pipeline import run_pipeline
 def get_model(model_name):
     # return torch.hub.load("pytorch/vision:v0.6.0", model_name, pretrained=True)
     return torchvision.models.segmentation.__dict__[model_name](pretrained=True)
+
+
+def get_mask(image):
+    r, g, b, _ = image.split()
+    r_mask = r.point(lambda i: i > 0 and 255)
+    g_mask = g.point(lambda i: i > 0 and 255)
+    b_mask = b.point(lambda i: i > 0 and 255)
+    return ImageMath.eval("convert(a | b | c, 'L')", a=r_mask, b=g_mask, c=b_mask)
 
 
 def main(args):
@@ -64,7 +72,12 @@ def main(args):
         seg_mask = Image.fromarray(output_predictions.byte().cpu().numpy()).resize(
             input_image.size
         )
+
         seg_mask.putpalette(colors)
+
+        seg_mask = seg_mask.convert("RGBA")
+
+        seg_mask.putalpha(get_mask(seg_mask))
 
         return seg_mask
 
