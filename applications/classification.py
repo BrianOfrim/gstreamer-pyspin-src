@@ -55,8 +55,6 @@ def main(args):
 
         input_batch = tensor_image.unsqueeze(0).to(device)
 
-        # input_batch = input_batch.to(device)
-
         start_time = time.monotonic()
         with torch.no_grad():
             output = model(input_batch)
