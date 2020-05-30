@@ -82,10 +82,29 @@ Preforming object detection on an edge device and streaming an augmented video f
 
 
 ## Examples
-- General object detection: **applications/detection.py**  
-- Face detection example: **applications/face-detection.py**  
-- General classification: **applications/classification.py**  
-- General segmentation: **applications/segmentation.py**  
+### Object detection
+Location: **applications/detection.py**  
+Recycling detection trained with the [Boja](https://github.com/BrianOfrim/boja) process  
+![Detection](docs/assets/RecyclingDetection.jpg)  
+
+### Face Detection
+Location: **applications/face-detection.py**  
+Face Detection model from https://github.com/timesler/facenet-pytorch  
+![FaceDetection](docs/assets/FaceDetection.jpg)  
+
+### Classification
+Location: **applications/classification.py**  
+Apply a torchvision pretrained classification model  
+![Classification](docs/assets/ReggieClassification.jpg)  
+
+### Segmentation
+Location: **applications/segmentation.py**  
+Apply a torchvision pretrained segmentation model  
+![Segmentation](docs/assets/ReggieSegmentation.jpg)
+
+### Detr Detection
+Location: **applications/detr-detection.py**  
+Apply a pretrained [detr](https://github.com/facebookresearch/detr) detection model  
 
 ## References
 Uses the following for gst buffer to numpy mapping utilities and to install [gst-python](https://github.com/GStreamer/gst-python):  

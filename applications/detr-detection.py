@@ -67,7 +67,7 @@ def main(args):
 
     preprocess = torchvision.transforms.Compose(
         [
-            torchvision.transforms.Resize(800),
+            torchvision.transforms.Resize(600),
             torchvision.transforms.ToTensor(),
             torchvision.transforms.Normalize(
                 [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
