@@ -1,7 +1,6 @@
 import os
 import time
 
-import cv2
 from PIL import Image, ImageMath
 import numpy as np
 import matplotlib.pyplot as plt

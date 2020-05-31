@@ -1,4 +1,5 @@
 # Based on https://github.com/google-coral/examples-camera/tree/master/gstreamer
+import os
 import sys
 import svgwrite
 import threading
@@ -17,6 +18,7 @@ Gst.init(None)
 
 
 class GstPipeline:
+    TEMP_OVERLAY_FILENAME = "overlay.png"
     def __init__(self, pipeline, user_function):
         self.user_function = user_function
         self.running = False
@@ -59,6 +61,9 @@ class GstPipeline:
             self.running = False
             self.condition.notify_all()
         worker.join()
+        # If an overlay image file was used remove it
+        if os.path.isfile(self.TEMP_OVERLAY_FILENAME):
+            os.remove(self.TEMP_OVERLAY_FILENAME)
 
     def on_bus_message(self, bus, message):
         t = message.type
@@ -110,8 +115,8 @@ class GstPipeline:
                     if self.overlay.get_name() == "overlay-svg":
                         self.overlay.set_property("data", overlay)
                     else:
-                        overlay.save("overlay.png")
-                        self.overlay.set_property("location", "overlay.png")
+                        overlay.save(self.TEMP_OVERLAY_FILENAME)
+                        self.overlay.set_property("location", self.TEMP_OVERLAY_FILENAME)
 
 
 def run_pipeline(

@@ -35,20 +35,10 @@ Clone this repo and install dependencies:
 
     python3 -m venv venv
     source venv/bin/activate
-    pip install -U wheel pip setuptools
-
-##### For x64/amd64 systems:
+    pip install -U wheel pip setuptools Cython
 
     pip install -r requirements.txt
-    pip install <path-to-pyspin-package>\spinnaker_python-2.x.x.x-cp36-cp36m-linux_x86_64.whl
-
-##### For arm64 systems:
-
-    pip install -r requirements-arm.txt
-    pip install <path-to-pyspin-package>\spinnaker_python-2.x.x.x-cp36-cp36m-linux_aarch64.whl
-
-**Optional:** Find a way to install pytorch and torchvison if you plan on running the object detection example. For Nvidia Jetson devices see: https://elinux.org/Jetson_Zoo
-
+    pip install <path-to-pyspin-package whl file>
 
 ## Usage
 
@@ -82,6 +72,18 @@ Preforming object detection on an edge device and streaming an augmented video f
 
 
 ## Examples
+Examples require Pillow pytorch and torchvision.   
+
+Install Pillow:
+
+    pip install Pillow
+
+Install pytorch and torchvision:  
+
+    pip install torch torchvision
+
+Note: for arm platforms torch and torchvision may not be available through pip. So you may need to find an alternative installation method. For example with Nvidia Jetson devices follow the instructions here: https://elinux.org/Jetson_Zoo  
+
 ### Object detection
 Location: **applications/detection.py**  
 Recycling detection trained with the [Boja](https://github.com/BrianOfrim/boja) process  
@@ -90,6 +92,7 @@ Recycling detection trained with the [Boja](https://github.com/BrianOfrim/boja) 
 ### Face Detection
 Location: **applications/face-detection.py**  
 Face Detection model from https://github.com/timesler/facenet-pytorch  
+Requires python module: facenet-pytorch (pip install facenet-pytorch)  
 ![FaceDetection](docs/assets/FaceDetection.jpg)  
 
 ### Classification
