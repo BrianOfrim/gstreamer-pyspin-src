@@ -2,7 +2,7 @@
 
 A GStreamer source plug in for the PySpin (spinnaker-python) Image Acquisition SDK  
 
-![GstreamerSpinnaker](docs/assets/gstreamerSpinnaker.png)
+![GstreamerSpinnaker](docs/assets/gstreamerSpinnakerMedium.png)
 
 ## Install
 
