@@ -1,6 +1,8 @@
 # GStreamer PySpin Src Plug-in
 
-A GStreamer source plug in for the PySpin (spinnaker-python) Image Acquisition SDK
+A GStreamer source plug in for the PySpin (spinnaker-python) Image Acquisition SDK  
+
+![GstreamerSpinnaker](docs/assets/gstreamerSpinnaker.png)
 
 ## Install
 
