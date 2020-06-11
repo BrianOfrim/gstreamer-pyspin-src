@@ -86,7 +86,7 @@ Install pytorch and torchvision:
 
 Note: for arm platforms torch and torchvision may not be available through pip. So you may need to find an alternative installation method. For example with Nvidia Jetson devices follow the instructions here: https://elinux.org/Jetson_Zoo 
 
-The following examples use the same pipeline created in [application/gst_overlay_pipeline.py] and supply different image processing functions.
+The following examples use the same pipeline created in [gst_overlay_pipeline.py](applications/gst_overlay_pipeline.py) and supply different image processing functions.
 
 Example Application pipeline:
 
