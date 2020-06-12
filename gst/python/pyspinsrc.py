@@ -89,10 +89,13 @@ class ImageAcquirer:
 
     def _reset_cam(self):
         if self._current_device is not None and self._current_device.IsValid():
-            if self._current_device.IsStreaming():
-                self._current_device.EndAcquisition()
-            if self._current_device.IsInitialized():
-                self._current_device.DeInit()
+            try:
+                if self._current_device.IsStreaming():
+                    self.end_acquisition()
+                if self._current_device.IsInitialized():
+                    self._current_device.DeInit()
+            except Exception as ex:
+                print(f"Error: {ex}")
 
         self._device_node_map = None
         self._tl_device_node_map = None
@@ -200,7 +203,7 @@ class ImageAcquirer:
         elif node.GetPrincipalInterfaceType() == PySpin.intfIEnumeration:
             return self._get_enum_node_val(PySpin.CEnumerationPtr(node))
         elif node.GetPrincipalInterfaceType() == PySpin.intfIString:
-            raise NotImplementedError("No getter implemented for string nodes")
+            return self._get_string_node_val(PySpin.CStringPtr(node)) 
         elif node.GetPrincipalInterfaceType() == PySpin.intfICommand:
             raise NotImplementedError("No getter implemented for command nodes")
         else:
@@ -223,7 +226,7 @@ class ImageAcquirer:
         elif node.GetPrincipalInterfaceType() == PySpin.intfIEnumeration:
             return self._set_enum_node_val(PySpin.CEnumerationPtr(node), value)
         elif node.GetPrincipalInterfaceType() == PySpin.intfIString:
-            raise NotImplementedError("No setter implemented for string nodes")
+            return self._set_string_node_val(PySpin.CStringPtr(node), value) 
         elif node.GetPrincipalInterfaceType() == PySpin.intfICommand:
             raise NotImplementedError("No setter implemented for command nodes")
         else:
@@ -241,7 +244,7 @@ class ImageAcquirer:
             self._execute_command_node(node_name)
         else:
             raise ValueError(
-                f"{node_name} node is of unknown type: {node.GetPrincipalInterfaceType()}"
+                f"Cannot execute {node_name} node of type: {node.GetPrincipalInterfaceType()}"
             )
 
     def get_node_range(self, node_name: str) -> (Any, Any):
@@ -371,6 +374,20 @@ class ImageAcquirer:
             )
 
         enum_node.SetIntValue(enum_entry.GetValue())
+
+    def _get_string_node_val(self, string_node: PySpin.CStringPtr) -> str:
+        if not PySpin.IsAvailable(string_node) or not PySpin.IsReadable(string_node):
+            raise ValueError(
+                f"String node '{string_node.GetDisplayName()}' is not readable"
+            )
+        return string_node.GetValue()
+
+    def _set_string_node_val(self, string_node: PySpin.CStringPtr, value: str):
+        if not PySpin.IsAvailable(string_node) or not PySpin.IsWritable(string_node):
+            raise ValueError(
+                f"String node '{string_node.GetDisplayName()}' is not writable"
+            )
+        string_node.SetValue(str(value))
 
     def _execute_command_node(self, node_name: str):
         command_node = PySpin.CCommandPtr(self._get_node(node_name))
