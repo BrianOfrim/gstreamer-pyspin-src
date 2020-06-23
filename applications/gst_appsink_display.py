@@ -1,7 +1,6 @@
 # Based on https://github.com/google-coral/examples-camera/tree/master/gstreamer
 import os
 import sys
-import svgwrite
 import threading
 
 import numpy as np
@@ -11,15 +10,13 @@ import gi
 gi.require_version("Gst", "1.0")
 gi.require_version("GstBase", "1.0")
 gi.require_version("Gtk", "3.0")
-from gi.repository import GLib, GObject, Gst, GstBase, Gtk
+from gi.repository import GLib, GObject, Gst, GstBase, Gtk, GdkPixbuf
 
 GObject.threads_init()
 Gst.init(None)
 
 
 class GstPipeline:
-    TEMP_OVERLAY_FILENAME = "overlay.png"
-
     def __init__(self, pipeline, user_function):
         self.user_function = user_function
         self.running = False
@@ -28,10 +25,11 @@ class GstPipeline:
         self.condition = threading.Condition()
 
         self.pipeline = Gst.parse_launch(pipeline)
-        self.overlay = self.pipeline.get_by_name("overlay-svg")
-        if self.overlay is None:
-            self.overlay = self.pipeline.get_by_name("overlay-image")
-            self.overlay.set_property("alpha", 0.5)
+
+        self.window = Gtk.Window()
+        self.window.connect("destroy", Gtk.main_quit)
+        self.display_img = Gtk.Image.new()
+        self.window.add(self.display_img)
 
         appsink = self.pipeline.get_by_name("appsink")
         appsink.connect("new-sample", self.on_new_sample)
@@ -46,6 +44,9 @@ class GstPipeline:
         self.running = True
         worker = threading.Thread(target=self.vision_loop)
         worker.start()
+
+        # Display the window
+        self.window.show_all()
 
         # Run pipeline.
         self.pipeline.set_state(Gst.State.PLAYING)
@@ -62,9 +63,6 @@ class GstPipeline:
             self.running = False
             self.condition.notify_all()
         worker.join()
-        # If an overlay image file was used remove it
-        if os.path.isfile(self.TEMP_OVERLAY_FILENAME):
-            os.remove(self.TEMP_OVERLAY_FILENAME)
 
     def on_bus_message(self, bus, message):
         t = message.type
@@ -96,8 +94,10 @@ class GstPipeline:
             with self.condition:
                 while not self.gstbuffer and self.running:
                     self.condition.wait()
+
                 if not self.running:
                     break
+
                 local_gst_buffer = self.gstbuffer
                 self.gstbuffer = None
 
@@ -111,15 +111,21 @@ class GstPipeline:
                 )
                 local_gst_buffer.unmap(mapinfo)
 
-                overlay = self.user_function(local_np_buffer)
-                if overlay and self.overlay:
-                    if self.overlay.get_name() == "overlay-svg":
-                        self.overlay.set_property("data", overlay)
-                    else:
-                        overlay.save(self.TEMP_OVERLAY_FILENAME)
-                        self.overlay.set_property(
-                            "location", self.TEMP_OVERLAY_FILENAME
+                next_image = self.user_function(local_np_buffer)
+
+                if next_image:
+                    image_arr = np.array(next_image)
+                    self.display_img.set_from_pixbuf(
+                        GdkPixbuf.Pixbuf.new_from_bytes(
+                            GLib.Bytes.new(image_arr.tobytes()),
+                            GdkPixbuf.Colorspace.RGB,
+                            False,
+                            8,
+                            self.sink_size[1],
+                            self.sink_size[0],
+                            self.sink_size[1] * 3,
                         )
+                    )
 
 
 def run_pipeline(
@@ -128,8 +134,6 @@ def run_pipeline(
     src_height: int = None,
     src_width: int = None,
     binning_level: int = 1,
-    overlay_element: str = "rsvgoverlay",
-    image_sink_sub_pipeline: str = "ximagesink sync=false",
 ):
 
     image_src_element = "pyspinsrc"
@@ -150,16 +154,7 @@ def run_pipeline(
     appsink_caps = "video/x-raw,format=RGB"
     leaky_queue = "queue max-size-buffers=1 leaky=downstream"
 
-    overlay_element += (
-        " name=overlay-svg"
-        if overlay_element == "rsvgoverlay"
-        else " name=overlay-image"
-    )
-
-    pipeline = f""" {image_src_element} ! {image_src_caps} ! tee name=t
-        t. ! {leaky_queue} ! videoconvert ! {appsink_caps} ! {appsink_element}
-        t. ! {leaky_queue} ! videoconvert ! {overlay_element} ! videoconvert ! {image_sink_sub_pipeline}
-        """
+    pipeline = f" {image_src_element} ! {image_src_caps} ! {leaky_queue} ! videoconvert ! {appsink_caps} ! {appsink_element}"
 
     print("Gstreamer pipeline:\n", pipeline)
 

@@ -4,33 +4,19 @@ import time
 
 from facenet_pytorch import MTCNN
 import numpy as np
-import svgwrite
+from PIL import Image, ImageDraw, ImageFont
+
 import torch
 
-from gst_overlay_pipeline import run_pipeline
+from gst_appsink_display import run_pipeline
 
 
-def draw_text(dwg, x, y, text, font_size=25):
-    dwg.add(
-        dwg.text(text, insert=(x, max(y, font_size)), fill="white", font_size=font_size)
-    )
+def draw_text(img_draw, x, y, text, font=None):
+    img_draw.text((x, y), text, font=font)
 
 
-def draw_rect(dwg, x, y, w, h, stroke_color="red", stroke_width=4):
-    dwg.add(
-        dwg.rect(
-            insert=(int(x), int(y)),
-            size=(int(w), int(h)),
-            fill="none",
-            stroke=stroke_color,
-            stroke_width=stroke_width,
-        )
-    )
-
-
-def draw_pts(dwg, pts, color="green", rad=5):
-    for pt in pts:
-        dwg.add(dwg.circle(center=(int(pt[0]), int(pt[1])), r=rad, fill=color))
+def draw_rect(img_draw, box, boxcolor="black"):
+    img_draw.rectangle(box, fill=boxcolor)
 
 
 def main(args):
@@ -40,34 +26,38 @@ def main(args):
 
     mtcnn = MTCNN(device=device, keep_all=True)
 
+    text_font = ImageFont.truetype(
+        "/usr/share/matplotlib/mpl-data/fonts/ttf/DejaVuSansMono.ttf", 25
+    )
+
     def user_callback(image_data):
 
         if image_data is None:
             return None
 
         start_time = time.monotonic()
-        boxes, probs, points = mtcnn.detect(image_data, landmarks=True)
+        boxes, probs, _ = mtcnn.detect(image_data, landmarks=True)
         inference_time_ms = (time.monotonic() - start_time) * 1000
 
-        dwg = svgwrite.Drawing("", size=(image_data.shape[1], image_data.shape[0]))
-        draw_text(dwg, 5, 30, f"Infernce time: {inference_time_ms:.2f}ms")
+        augmented_image = Image.fromarray(image_data.astype("uint8"), "RGB")
+
+        img_draw = ImageDraw.Draw(augmented_image)
+
+        draw_text(
+            img_draw, 5, 5, f"Infernce time: {inference_time_ms:.2f}ms", font=text_font
+        )
 
         print(f"Inference time: {inference_time_ms:.2f}ms")
 
         if boxes is not None:
-            for box, prob, pts in zip(boxes, probs, points):
+            for box, prob in zip(boxes, probs):
                 if prob < args.threshold:
                     continue
 
-                x, y = box[0], box[1]
-                w, h = box[2] - box[0], box[3] - box[1]
+                draw_rect(img_draw, box)
+                print(f"\tbox={box} ({(100*prob):.2f}%)")
 
-                draw_rect(dwg, x, y, w, h, stroke_color="red", stroke_width=4)
-                draw_pts(dwg, pts)
-
-                print(f"\tx={x} y={y} w={w} h={h} ({(100*prob):.2f}%)")
-
-        return dwg.tostring()
+        return augmented_image
 
     run_pipeline(
         user_callback,
@@ -75,7 +65,6 @@ def main(args):
         src_height=args.source_height,
         src_width=args.source_width,
         binning_level=args.binning_level,
-        image_sink_sub_pipeline=args.sink_pipeline,
     )
 
 
@@ -102,13 +91,6 @@ if __name__ == "__main__":
         type=float,
         default=0.7,
         help="The threshold above which to display predicted bounding boxes",
-    )
-
-    parser.add_argument(
-        "--sink_pipeline",
-        type=str,
-        default="ximagesink sync=false",
-        help="GStreamer pipline section for the image sink",
     )
 
     main(parser.parse_args())
