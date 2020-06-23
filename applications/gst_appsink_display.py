@@ -113,7 +113,7 @@ class GstPipeline:
 
                 next_image = self.user_function(local_np_buffer)
 
-                if next_image:
+                if next_image is not None:
                     image_arr = np.array(next_image)
                     self.display_img.set_from_pixbuf(
                         GdkPixbuf.Pixbuf.new_from_bytes(
@@ -121,9 +121,9 @@ class GstPipeline:
                             GdkPixbuf.Colorspace.RGB,
                             False,
                             8,
-                            self.sink_size[1],
-                            self.sink_size[0],
-                            self.sink_size[1] * 3,
+                            image_arr.shape[1],
+                            image_arr.shape[0],
+                            image_arr.shape[1] * 3,
                         ).copy()
                     )
                     # The pix buf copy is a workaround for a memory leak that happens if you set the image from the original

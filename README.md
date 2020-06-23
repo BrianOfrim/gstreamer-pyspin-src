@@ -121,10 +121,16 @@ Apply a pretrained [detr](https://github.com/facebookresearch/detr) detection mo
 
 ### Simple Display Examples
 The following examples use the same pipeline created in [gst_appsink_display.py](applications/gst_appsink_display.py) and supply different image processing functions.
+
 #### Face Mask
 Location: **applications/face-mask.py**  
 Draw filled boxes over detected faces in order to hide identity  
 ![FaceMask](docs/assets/OfficeFaceMask.jpg)
+
+#### Relative Depth
+Location: **applications/face-mask.py**  
+Apply [MiDaS](https://github.com/intel-isl/MiDaS) for relative depth estimation
+![RelativeDepth](docs/assets/OfficeRelativeDepth.jpg)
 
 ## References
 Uses the following for gst buffer to numpy mapping utilities and to install [gst-python](https://github.com/GStreamer/gst-python):  
