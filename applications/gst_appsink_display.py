@@ -124,8 +124,9 @@ class GstPipeline:
                             self.sink_size[1],
                             self.sink_size[0],
                             self.sink_size[1] * 3,
-                        )
+                        ).copy()
                     )
+                    # The pix buf copy is a workaround for a memory leak that happens if you set the image from the original
 
 
 def run_pipeline(
