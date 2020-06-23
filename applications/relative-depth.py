@@ -71,10 +71,6 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--model_path", type=str, help="The model to load")
-
-    parser.add_argument("--label_path", type=str, help="The labels to use")
-
     parser.add_argument("--source_width", type=int)
 
     parser.add_argument("--source_height", type=int)
@@ -82,12 +78,5 @@ if __name__ == "__main__":
     parser.add_argument("--frame_rate", type=int)
 
     parser.add_argument("--binning_level", type=int, default=2)
-
-    parser.add_argument(
-        "--threshold",
-        type=float,
-        default=0.7,
-        help="The threshold above which to display predicted bounding boxes",
-    )
 
     main(parser.parse_args())
