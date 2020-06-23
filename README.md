@@ -86,37 +86,45 @@ Install pytorch and torchvision:
 
 Note: for arm platforms torch and torchvision may not be available through pip. So you may need to find an alternative installation method. For example with Nvidia Jetson devices follow the instructions here: https://elinux.org/Jetson_Zoo 
 
+### Overlay Examples
 The following examples use the same pipeline created in [gst_overlay_pipeline.py](applications/gst_overlay_pipeline.py) and supply different image processing functions.
 
 Example Application pipeline:
 
 ![ApplicationPipeline](docs/assets/OverlayPipeline.jpg)
 
-
-### Object detection
+#### Object detection
 Location: **applications/detection.py**  
 Recycling detection trained with the [Boja](https://github.com/BrianOfrim/boja) process  
 ![Detection](docs/assets/RecyclingDetection.jpg)  
 
-### Face Detection
+#### Face Detection
 Location: **applications/face-detection.py**  
 Face Detection model from https://github.com/timesler/facenet-pytorch  
 Requires python module: facenet-pytorch (pip install facenet-pytorch)  
 ![FaceDetection](docs/assets/FaceDetection.jpg)  
 
-### Classification
+#### Classification
 Location: **applications/classification.py**  
 Apply a torchvision pretrained classification model  
 ![Classification](docs/assets/ReggieClassification.jpg)  
 
-### Segmentation
+#### Segmentation
 Location: **applications/segmentation.py**  
 Apply a torchvision pretrained segmentation model  
 ![Segmentation](docs/assets/ReggieSegmentation.jpg)
 
-### Detr Detection
+#### Detr Detection
 Location: **applications/detr-detection.py**  
 Apply a pretrained [detr](https://github.com/facebookresearch/detr) detection model  
+
+
+### Simple Display Examples
+The following examples use the same pipeline created in [gst_appsink_display.py](applications/gst_appsink_display.py) and supply different image processing functions.
+#### Face Mask
+Location: **applications/face-mask.py**  
+Draw filled boxes over detected faces in order to hide identity  
+![FaceMask](docs/assets/OfficeFaceMask.jpg)
 
 ## References
 Uses the following for gst buffer to numpy mapping utilities and to install [gst-python](https://github.com/GStreamer/gst-python):  
