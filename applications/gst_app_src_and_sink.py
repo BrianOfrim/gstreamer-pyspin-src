@@ -1,6 +1,7 @@
 # Based on https://github.com/google-coral/project-bodypix/blob/master/gstreamer.py
 from functools import partial
 import sys
+import time
 
 import numpy as np
 
@@ -31,8 +32,10 @@ def on_bus_message(bus, message, loop):
 def on_new_sample(sink, appsrc, user_function):
     sample = sink.emit("pull-sample")
     sample_struct = sample.get_caps().get_structure(0)
+
     buf = sample.get_buffer()
     result, mapinfo = buf.map(Gst.MapFlags.READ)
+
     if result:
         img = np.frombuffer(mapinfo.data, np.uint8)
         img = np.reshape(
@@ -41,7 +44,7 @@ def on_new_sample(sink, appsrc, user_function):
         )
         next_image = user_function(img.copy())
 
-        if appsrc:
+        if appsrc is not None:
             next_image = np.array(next_image)
             data = next_image.tobytes()
             next_buffer = Gst.Buffer.new_allocate(None, len(data), None)
@@ -54,26 +57,26 @@ def on_new_sample(sink, appsrc, user_function):
 
 def run_pipeline(
     user_function,
-    src_frame_rate: int = 10,
-    src_height: int = 540,
-    src_width: int = 720,
+    src_frame_rate: int = None,
+    src_height: int = None,
+    src_width: int = None,
     binning_level: int = 1,
     image_sink_bin: str = "ximagesink sync=false",
 ):
 
-    image_src_element = "pyspinsrc"
-    # if binning_level is not None and binning_level != 1:
-    #     image_src_element += f" h-binning={binning_level} v-binning={binning_level}"
+    image_src_element = "pyspinsrc name=imagesrc"
+    if binning_level is not None and binning_level != 1:
+        image_src_element += f" h-binning={binning_level} v-binning={binning_level}"
 
     image_src_caps = "video/x-raw,format=RGB"
-    # if src_frame_rate is not None:
-    image_src_caps += f",framerate={int(2)}/1"
+    if src_frame_rate is not None:
+        image_src_caps += f",framerate={int(src_frame_rate)}/1"
 
-    # if src_height is not None:
-    image_src_caps += f",height=540"
+    if src_height is not None:
+        image_src_caps += f",height={src_height}"
 
-    # if src_width is not None:
-    image_src_caps += f",width=720"
+    if src_width is not None:
+        image_src_caps += f",width={src_width}"
 
     appsink_element = "appsink name=appsink emit-signals=true max-buffers=1 drop=true"
     appsink_caps = "video/x-raw,format=RGB"
@@ -81,15 +84,22 @@ def run_pipeline(
     appsrc_element = "appsrc name=appsrc"
 
     image_src_pipeline = f" {image_src_element} ! {image_src_caps} ! {leaky_queue} ! videoconvert ! {appsink_caps} ! {appsink_element}"
-    image_sink_pipeline = f"{appsrc_element} ! {image_src_caps} ! {leaky_queue} ! videoconvert ! {image_sink_bin}"
-
     print("Image src pipeline:\n", image_src_pipeline)
-    print("Image sink pipeline:\n", image_sink_pipeline)
-
     image_src_pipeline = Gst.parse_launch(image_src_pipeline)
-    image_sink_pipeline = Gst.parse_launch(image_sink_pipeline)
 
     appsink = image_src_pipeline.get_by_name("appsink")
+
+    # start image source pipeling and block until playing
+    image_src_pipeline.set_state(Gst.State.PLAYING)
+    state_change_info = image_src_pipeline.get_state(Gst.CLOCK_TIME_NONE)
+    print(
+        f"Image src pipeline state change to running successful? : {state_change_info[0] == Gst.StateChangeReturn.SUCCESS}"
+    )
+
+    image_sink_pipeline = f"{appsrc_element} ! {str(appsink.sinkpad.get_current_caps())} ! {leaky_queue} ! videoconvert ! {image_sink_bin}"
+    print("Image sink pipeline:\n", image_sink_pipeline)
+    image_sink_pipeline = Gst.parse_launch(image_sink_pipeline)
+
     appsrc = image_sink_pipeline.get_by_name("appsrc")
 
     appsink.connect(
@@ -103,7 +113,6 @@ def run_pipeline(
     bus.add_signal_watch()
     bus.connect("message", on_bus_message, loop)
 
-    image_src_pipeline.set_state(Gst.State.PLAYING)
     image_sink_pipeline.set_state(Gst.State.PLAYING)
     try:
         loop.run()
