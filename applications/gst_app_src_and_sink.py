@@ -97,6 +97,7 @@ def run_pipeline(
     )
 
     image_sink_pipeline = f"{appsrc_element} ! {str(appsink.sinkpad.get_current_caps())} ! {leaky_queue} ! videoconvert ! {image_sink_bin}"
+    
     print("Image sink pipeline:\n", image_sink_pipeline)
     image_sink_pipeline = Gst.parse_launch(image_sink_pipeline)
 

@@ -107,6 +107,7 @@ ENV/
 
 # pyTorch model states
 *.pt
+*.pth
 
 # label files
 labels.txt
