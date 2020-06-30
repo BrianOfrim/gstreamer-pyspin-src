@@ -22,6 +22,7 @@ HEIGHT = 224
 
 
 def get_original_model(human_pose, device):
+    print("Loading non-optimized model")
     num_parts = len(human_pose["keypoints"])
     num_links = len(human_pose["skeleton"])
 
@@ -42,21 +43,22 @@ def create_trt_model(original_model):
         original_model, [data], fp16_mode=True, max_workspace_size=1 << 25
     )
     torch.save(model_trt.state_dict(), OPTIMIZED_MODEL)
-    print("fTensorRT model saved at: {OPTIMIZED_MODEL}")
+    print(f"TensorRT model saved at: {OPTIMIZED_MODEL}")
     return model_trt
 
 
 def load_trt_model(model_path):
     from torch2trt import TRTModule
 
-    print("Loading TensorRT model")
+    print("Loading TensorRT optimized model")
     model = TRTModule()
     model.load_state_dict(torch.load(model_path))
+    return model
 
 
 def get_model(human_pose, device):
 
-    if not torch.cuda.is_available():
+    if device.type == "cpu":
         return get_original_model(human_pose, device)
 
     if os.path.isfile(OPTIMIZED_MODEL):
@@ -98,6 +100,7 @@ def main(args):
 
         tensor_image = preprocess(image_data)
         tensor_image = tensor_image.unsqueeze(0)
+
         cmap, paf = model(tensor_image.to(device))
         cmap, paf = cmap.detach().cpu(), paf.detach().cpu()
 

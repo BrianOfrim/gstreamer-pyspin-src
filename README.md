@@ -1,6 +1,6 @@
 # GStreamer PySpin Src Plug-in
 
-A GStreamer source plug in for the PySpin (spinnaker-python) Image Acquisition SDK  
+An unofficial GStreamer source plug in for the PySpin (spinnaker-python) Image Acquisition SDK
 
 ![GstreamerSpinnaker](docs/assets/gstreamerSpinnakerMedium.png)
 
@@ -129,8 +129,17 @@ Draw filled boxes over detected faces in order to hide identity
 
 #### Relative Depth
 Location: **applications/face-mask.py**  
-Apply [MiDaS](https://github.com/intel-isl/MiDaS) for relative depth estimation
+Apply [MiDaS](https://github.com/intel-isl/MiDaS) for relative depth estimation  
 ![RelativeDepth](docs/assets/OfficeRelativeDepth.jpg)
+
+### Appsrc -> process -> Appsink Examples
+The following examples use two pipelines created in [gst_app_src_and_sink.py](applications/gst_app_src_and_sink.py). Images are produced via a pipeline ending with an [appsink](https://gstreamer.freedesktop.org/documentation/app/appsink.html) element, processed with a user application, then consumed by a pipeline starting with an [appsrc](https://gstreamer.freedesktop.org/documentation/app/appsrc.html) element.
+
+#### Human Pose Detection
+Location: **applications/human-pose.py**  
+Apply human pose detection from [trt_pose](https://github.com/NVIDIA-AI-IOT/trt_pose). If a cuda device is detected it will optimize and save a TensorRT model.  
+![HumanPose](docs/assets/OfficeHumanPose.jpg)
+
 
 ## References
 Uses the following for gst buffer to numpy mapping utilities and to install [gst-python](https://github.com/GStreamer/gst-python):  
