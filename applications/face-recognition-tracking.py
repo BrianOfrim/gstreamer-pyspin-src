@@ -51,11 +51,9 @@ def main(args):
 
         if faces is not None:
             print(faces.shape)
-            # alligned = torch.stack([faces.to(device)
             device_faces = faces.to(device)
             embbeddings = resnet(device_faces).detach().cpu()
             print(embbeddings.shape)
-            # print(embbeddings)
 
             faces = [to_pil(face) for face in torch.unbind(faces)]
             face_width = faces[0].width 
@@ -68,36 +66,6 @@ def main(args):
         
         inference_time_ms = (time.monotonic() - start_time) * 1000
         print(f"Inference time: {inference_time_ms}")
-
-
-
-        
-
-        # augmented_image = Image.fromarray(image_data.astype("uint8"), "RGB")
-
-        # img_draw = ImageDraw.Draw(augmented_image)
-
-        # draw_text(
-        #     img_draw, 5, 5, f"Infernce time: {inference_time_ms:.2f}ms", font=header_text_font
-        # )
-
-        # print(f"Inference time: {inference_time_ms:.2f}ms")
-
-        # if boxes is not None and len(boxes) > 0:
-        #     tracked_faces = mot_tracker.update(np.append(boxes, np.expand_dims(probs, axis=0).T, axis=1))
-
-        #     for tf in tracked_faces:
-        #         print(tf)
-        #         draw_rect(img_draw, tf[0:4].astype(np.float32), stroke_color="green")
-        #         draw_text(img_draw, int(tf[0]), int(tf[1]) - 15 , f"person: {int(tf[-1])}", font=box_text_font)
-
-        #     # for box, prob in zip(boxes, probs):
-        #     #     if prob < args.threshold:
-        #     #         continue
-        #     #     draw_rect(img_draw, box)
-        #     #     print(f"\tbox={box} ({(100*prob):.2f}%)")
-        # else:
-        #     mot_tracker.update(np.empty((0, 5)))
 
         return augmented_image
 
