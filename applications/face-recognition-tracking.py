@@ -24,7 +24,7 @@ def main(args):
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     print(f"Running inference on device: {device}")
 
-    mtcnn = MTCNN(device=device, keep_all=True)
+    mtcnn = MTCNN(device=device, margin=0, min_face_size=20, thresholds=[0.6, 0.7, 0.7], factor=0.709, post_process=True, keep_all=True)
 
     resnet = InceptionResnetV1(pretrained="vggface2").eval().to(device)
 
@@ -38,13 +38,17 @@ def main(args):
     ) 
 
     to_pil = torchvision.transforms.ToPILImage()
+
+    image_set_num = [0]
     
     def user_callback(image_data):
 
         if image_data is None:
             return None
-        
+
+
         augmented_image = Image.fromarray(image_data.astype("uint8"), "RGB")
+        image_draw = ImageDraw.Draw(augmented_image)
 
         start_time = time.monotonic()
         faces, probs = mtcnn(image_data, return_prob=True)
@@ -52,20 +56,28 @@ def main(args):
         if faces is not None:
             print(faces.shape)
             device_faces = faces.to(device)
-            embbeddings = resnet(device_faces).detach().cpu()
-            print(embbeddings.shape)
+            embeddings = resnet(device_faces).detach().cpu()
+            print(embeddings.shape)
 
             faces = [to_pil(face) for face in torch.unbind(faces)]
             face_width = faces[0].width 
             face_height = faces[0].height  
             face_per_row = math.floor(augmented_image.width/face_width)
             for i, face in enumerate(faces):
-                augmented_image.paste(face, ((i % face_per_row) *  face_width, math.floor(i/face_per_row)* face_height))
-            
-        
-        
+                x = (i % face_per_row) *  face_width
+                y = math.floor(i/face_per_row) * face_height
+
+                augmented_image.paste(face, (x,y))
+                draw_text(image_draw, x, y-20, str(i), box_text_font)
+
+            for i1, e1 in enumerate(embeddings):
+                for i2, e2 in enumerate(embeddings):
+                    print(f"{i1} - {i2}: {(e1 - e2).norm().item()}")
+
         inference_time_ms = (time.monotonic() - start_time) * 1000
         print(f"Inference time: {inference_time_ms}")
+        
+        image_set_num[0] += 1 
 
         return augmented_image
 
