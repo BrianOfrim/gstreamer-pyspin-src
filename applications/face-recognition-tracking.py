@@ -6,10 +6,13 @@ import time
 from facenet_pytorch import MTCNN, InceptionResnetV1
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
+from sklearn.cluster import DBSCAN
 import torch
 import torchvision
 
 from gst_app_src_and_sink import run_pipeline
+
+
 
 def draw_text(img_draw, x, y, text, font=None):
     img_draw.text((max(0,x), max(0,y)), text, font=font)
@@ -39,7 +42,8 @@ def main(args):
 
     to_pil = torchvision.transforms.ToPILImage()
 
-    image_set_num = [0]
+    db = DBSCAN(eps=1.05, min_samples=1, metric='precomputed')
+
     
     def user_callback(image_data):
 
@@ -48,7 +52,6 @@ def main(args):
 
 
         augmented_image = Image.fromarray(image_data.astype("uint8"), "RGB")
-        image_draw = ImageDraw.Draw(augmented_image)
 
         start_time = time.monotonic()
         faces, probs = mtcnn(image_data, return_prob=True)
@@ -58,26 +61,59 @@ def main(args):
             device_faces = faces.to(device)
             embeddings = resnet(device_faces).detach().cpu()
             print(embeddings.shape)
+            print(type(embeddings))
 
             faces = [to_pil(face) for face in torch.unbind(faces)]
             face_width = faces[0].width 
-            face_height = faces[0].height  
-            face_per_row = math.floor(augmented_image.width/face_width)
-            for i, face in enumerate(faces):
-                x = (i % face_per_row) *  face_width
-                y = math.floor(i/face_per_row) * face_height
+            face_height = faces[0].height
 
-                augmented_image.paste(face, (x,y))
-                draw_text(image_draw, x, y-20, str(i), box_text_font)
+            matrix = np.zeros((len(faces), len(faces)))
 
+            print('')
+            # Print distance matrix
+            print('Distance matrix')
+            print('    ', end='')
+            for i in range(len(faces)):
+                print('    %1d     ' % i, end='')
+            print('')
             for i1, e1 in enumerate(embeddings):
+                print('%1d  ' % i1, end='')
                 for i2, e2 in enumerate(embeddings):
-                    print(f"{i1} - {i2}: {(e1 - e2).norm().item()}")
+                    dist = (e1 - e2).norm().item()
+                    matrix[i1][i2] = dist
+                    print('  %1.4f  ' % dist, end='')
+                print('')
+
+            print('')
+
+            db.fit(matrix)
+            labels = db.labels_
+
+
+            # get number of clusters
+            no_clusters = len(set(labels)) - (1 if -1 in labels else 0)
+
+            print('No of clusters:', no_clusters)
+            print(labels)
+
+            if no_clusters > 0:
+                    for i in range(no_clusters):
+                        cluster_members = np.nonzero(labels == i)[0]
+                        cluster_embeddings = embeddings[cluster_members]
+                        print(cluster_embeddings.shape)
+                        cluster_center = torch.mean(cluster_embeddings,0,True)
+                        print(cluster_center.shape)
+
+                        print(f"Cluster {i}: {cluster_members}")
+                        k = 0
+                        for j in np.nonzero(labels == i)[0]:
+                            x = k * face_width
+                            y = i * face_height
+                            augmented_image.paste(faces[j], (x,y))
+                            k+=1
 
         inference_time_ms = (time.monotonic() - start_time) * 1000
         print(f"Inference time: {inference_time_ms}")
-        
-        image_set_num[0] += 1 
 
         return augmented_image
 
