@@ -3,7 +3,7 @@ import os
 import time
 
 
-from facenet_pytorch import MTCNN, InceptionResnetV1
+from facenet_pytorch import MTCNN, InceptionResnetV1, extract_face, fixed_image_standardization
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from sklearn.cluster import DBSCAN
@@ -11,7 +11,6 @@ import torch
 import torchvision
 
 from gst_app_src_and_sink import run_pipeline
-
 
 
 def draw_text(img_draw, x, y, text, font=None):
@@ -30,7 +29,6 @@ def main(args):
     mtcnn = MTCNN(device=device, margin=0, min_face_size=20, thresholds=[0.6, 0.7, 0.7], factor=0.709, post_process=True, keep_all=True)
 
     resnet = InceptionResnetV1(pretrained="vggface2").eval().to(device)
-
 
     header_text_font = ImageFont.truetype(
         "/usr/share/matplotlib/mpl-data/fonts/ttf/DejaVuSansMono.ttf", 25
@@ -56,20 +54,30 @@ def main(args):
 
         augmented_image = Image.fromarray(image_data.astype("uint8"), "RGB")
 
-        start_time = time.monotonic()
-        faces, probs = mtcnn(image_data, return_prob=True)
+        img_draw = ImageDraw.Draw(augmented_image)
 
-        if faces is not None:
-            print(faces.shape)
+        start_time = time.monotonic()
+
+        with torch.no_grad():
+            boxes, probs = mtcnn.detect(image_data)
+
+        if boxes is not None and len(boxes) > 0:
+            faces = []
+
+            for box in boxes:
+                face = extract_face(image_data, box)
+                faces.append(fixed_image_standardization(face))
+
+            print(f"Number of faces: {len(faces)}")
+
+            faces = torch.stack(faces, dim=0)
             device_faces = faces.to(device)
             embeddings = resnet(device_faces).detach().cpu()
             print(embeddings.shape)
 
             # Add existing cluster center embeddings
-            embeddings = torch.cat([embeddings, cluster_centers], dim=0)
-            print("shape after adding existing clusters")
-            print(embeddings.shape)
-
+            embeddings = torch.cat([cluster_centers, embeddings], dim=0)
+            print(f" Embedding shape after adding existing clusters: {embeddings.shape}")
 
             faces = [to_pil(face) for face in torch.unbind(faces)]
             face_width = faces[0].width 
@@ -77,21 +85,25 @@ def main(args):
 
             matrix = np.zeros((embeddings.shape[0], embeddings.shape[0]))
 
+            num_existing_clusters = cluster_centers.shape[0] 
+
+            print(f"Number of existing clusters: {num_existing_clusters}")
+
             print('')
             # Print distance matrix
             print('Distance matrix')
             print(f"{'':10}", end='')
             for i in range(embeddings.shape[0]):
-                if i < len(faces):
-                    print(f"{f'face{i}':^10}", end="")
+                if i < num_existing_clusters:
+                    print(f"{f'clust{i}':^10}", end="")
                 else:
-                    print(f"{f'clus{i - len(faces)}':^10}", end="")
+                    print(f"{f'face{i - num_existing_clusters}':^10}", end="")
             print('')
             for i1, e1 in enumerate(embeddings):
-                if i1 < len(faces):
-                    print(f"{f'face{i1}':^10}", end="")
+                if i1 < num_existing_clusters:
+                    print(f"{f'clust{i1}':^10}", end="")
                 else:
-                    print(f"{f'clus{i1 - len(faces)}':^10}", end="") 
+                    print(f"{f'face{i1 - num_existing_clusters}':^10}", end="") 
                 for i2, e2 in enumerate(embeddings):
                     dist = (e1 - e2).norm().item()
                     matrix[i1][i2] = dist
@@ -115,21 +127,27 @@ def main(args):
                         # skip any clusters that are just make of existing cluster centers
                         cluster_members = np.nonzero(labels == i)[0]
                         print(f"Cluster {i}: {cluster_members}")
-                        if (cluster_members >= len(faces)).all():
+                        if (cluster_members < num_existing_clusters).all():
                             print("No new faces in the cluster")
                             continue
-                        existing_cluster_center = next((c for c in cluster_members if c >= len(faces)), None)
+                        existing_cluster_center = next((c for c in cluster_members if c < num_existing_clusters), None)
                         if(existing_cluster_center is not None):
                             print(f"Cluster containes existing center: {existing_cluster_center}")
                             # filter out any other existing cluster centers that might be in the current cluster for some reason
-                            cluster_members = [ cm for cm in cluster_members if cm == existing_cluster_center or cm < len(faces)]
+                            cluster_members = [ cm for cm in cluster_members if cm == existing_cluster_center or cm >= num_existing_clusters]
                             cluster_embeddings = embeddings[cluster_members]
                             print(cluster_embeddings.shape)
                             cluster_center = torch.mean(cluster_embeddings ,0)
                             # update the center of the cluster to incluse the new faces
                             old_cluster_center = embeddings[existing_cluster_center]
-                            cluster_centers[existing_cluster_center - len(faces)] = cluster_center
+                            cluster_centers[existing_cluster_center] = cluster_center
                             print(f"Cluster center moved by: {(cluster_center - old_cluster_center).norm().item()}")
+
+                            face_indecies = [cm - num_existing_clusters for cm in cluster_members if cm >= num_existing_clusters]
+                            for box in boxes[face_indecies]:
+                                draw_rect(img_draw, box)
+                                draw_text(img_draw, box[0], box[1], f"person: {existing_cluster_center}", font=box_text_font)
+
                         else:
                             print("Cluster contains all new faces")
 
@@ -140,16 +158,22 @@ def main(args):
                             # print("Distance to cluster center:")
                             # for m, e in zip(cluster_members, cluster_embeddings):
                             #     print(f"Center to {m}: {(cluster_center - e).norm().item()}")
-                            
+                            face_indecies = [cm - num_existing_clusters for cm in cluster_members if cm >= num_existing_clusters]
+                            for box in boxes[face_indecies]:
+                                draw_rect(img_draw, box)
+                                draw_text(img_draw, box[0] , box[1] , f"person: ?", font=box_text_font)
+                        
+                        print(cluster_centers.shape)
+                        
 
                         
-                        k = 0
-                        for j in np.nonzero(labels == i)[0]:
-                            x = k * face_width
-                            y = i * face_height
-                            if j < len(faces):
-                                augmented_image.paste(faces[j], (x,y))
-                                k+=1
+                        # k = 0
+                        # for j in np.nonzero(labels == i)[0]:
+                        #     x = k * face_width
+                        #     y = i * face_height
+                        #     if j < len(faces):
+                        #         augmented_image.paste(faces[j], (x,y))
+                        #         k+=1
 
         inference_time_ms = (time.monotonic() - start_time) * 1000
         print(f"Inference time: {inference_time_ms}")
