@@ -44,8 +44,11 @@ def main(args):
 
     db = DBSCAN(eps=1.05, min_samples=1, metric='precomputed')
 
+    cluster_centers = torch.Tensor()
     
     def user_callback(image_data):
+
+        nonlocal cluster_centers 
 
         if image_data is None:
             return None
@@ -61,27 +64,38 @@ def main(args):
             device_faces = faces.to(device)
             embeddings = resnet(device_faces).detach().cpu()
             print(embeddings.shape)
-            print(type(embeddings))
+
+            # Add existing cluster center embeddings
+            embeddings = torch.cat([embeddings, cluster_centers], dim=0)
+            print("shape after adding existing clusters")
+            print(embeddings.shape)
+
 
             faces = [to_pil(face) for face in torch.unbind(faces)]
             face_width = faces[0].width 
             face_height = faces[0].height
 
-            matrix = np.zeros((len(faces), len(faces)))
+            matrix = np.zeros((embeddings.shape[0], embeddings.shape[0]))
 
             print('')
             # Print distance matrix
             print('Distance matrix')
-            print('    ', end='')
-            for i in range(len(faces)):
-                print('    %1d     ' % i, end='')
+            print(f"{'':10}", end='')
+            for i in range(embeddings.shape[0]):
+                if i < len(faces):
+                    print(f"{f'face{i}':^10}", end="")
+                else:
+                    print(f"{f'clus{i - len(faces)}':^10}", end="")
             print('')
             for i1, e1 in enumerate(embeddings):
-                print('%1d  ' % i1, end='')
+                if i1 < len(faces):
+                    print(f"{f'face{i1}':^10}", end="")
+                else:
+                    print(f"{f'clus{i1 - len(faces)}':^10}", end="") 
                 for i2, e2 in enumerate(embeddings):
                     dist = (e1 - e2).norm().item()
                     matrix[i1][i2] = dist
-                    print('  %1.4f  ' % dist, end='')
+                    print(f"{dist:^10.4f}", end='')
                 print('')
 
             print('')
@@ -98,19 +112,44 @@ def main(args):
 
             if no_clusters > 0:
                     for i in range(no_clusters):
+                        # skip any clusters that are just make of existing cluster centers
                         cluster_members = np.nonzero(labels == i)[0]
-                        cluster_embeddings = embeddings[cluster_members]
-                        print(cluster_embeddings.shape)
-                        cluster_center = torch.mean(cluster_embeddings,0,True)
-                        print(cluster_center.shape)
-
                         print(f"Cluster {i}: {cluster_members}")
+                        if (cluster_members >= len(faces)).all():
+                            print("No new faces in the cluster")
+                            continue
+                        existing_cluster_center = next((c for c in cluster_members if c >= len(faces)), None)
+                        if(existing_cluster_center is not None):
+                            print(f"Cluster containes existing center: {existing_cluster_center}")
+                            # filter out any other existing cluster centers that might be in the current cluster for some reason
+                            cluster_members = [ cm for cm in cluster_members if cm == existing_cluster_center or cm < len(faces)]
+                            cluster_embeddings = embeddings[cluster_members]
+                            print(cluster_embeddings.shape)
+                            cluster_center = torch.mean(cluster_embeddings ,0)
+                            # update the center of the cluster to incluse the new faces
+                            old_cluster_center = embeddings[existing_cluster_center]
+                            cluster_centers[existing_cluster_center - len(faces)] = cluster_center
+                            print(f"Cluster center moved by: {(cluster_center - old_cluster_center).norm().item()}")
+                        else:
+                            print("Cluster contains all new faces")
+
+                            cluster_embeddings = embeddings[cluster_members]
+                            print(cluster_embeddings.shape)
+                            cluster_center = torch.mean(cluster_embeddings ,0)
+                            cluster_centers = torch.cat([cluster_centers, cluster_center.unsqueeze(0)], dim=0)
+                            # print("Distance to cluster center:")
+                            # for m, e in zip(cluster_members, cluster_embeddings):
+                            #     print(f"Center to {m}: {(cluster_center - e).norm().item()}")
+                            
+
+                        
                         k = 0
                         for j in np.nonzero(labels == i)[0]:
                             x = k * face_width
                             y = i * face_height
-                            augmented_image.paste(faces[j], (x,y))
-                            k+=1
+                            if j < len(faces):
+                                augmented_image.paste(faces[j], (x,y))
+                                k+=1
 
         inference_time_ms = (time.monotonic() - start_time) * 1000
         print(f"Inference time: {inference_time_ms}")
