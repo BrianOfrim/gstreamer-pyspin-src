@@ -62,11 +62,10 @@ def run_pipeline(
     src_width: int = None,
     binning_level: int = 1,
     image_sink_bin: str = "ximagesink sync=false",
+    image_src_bin: str = "pyspinsrc",
 ):
-
-    image_src_element = "pyspinsrc name=imagesrc"
     if binning_level is not None and binning_level != 1:
-        image_src_element += f" h-binning={binning_level} v-binning={binning_level}"
+        image_src_bin += f" h-binning={binning_level} v-binning={binning_level}"
 
     image_src_caps = "video/x-raw,format=RGB"
     if src_frame_rate is not None:
@@ -83,7 +82,8 @@ def run_pipeline(
     leaky_queue = "queue max-size-buffers=1 leaky=downstream"
     appsrc_element = "appsrc name=appsrc"
 
-    image_src_pipeline = f" {image_src_element} ! {image_src_caps} ! {leaky_queue} ! videoconvert ! {appsink_caps} ! {appsink_element}"
+    image_src_pipeline = f" {image_src_bin} ! {image_src_caps} ! {leaky_queue} ! videoconvert ! {appsink_caps} ! {appsink_element}"
+
     print("Image src pipeline:\n", image_src_pipeline)
     image_src_pipeline = Gst.parse_launch(image_src_pipeline)
 
@@ -97,7 +97,7 @@ def run_pipeline(
     )
 
     image_sink_pipeline = f"{appsrc_element} ! {str(appsink.sinkpad.get_current_caps())} ! {leaky_queue} ! videoconvert ! {image_sink_bin}"
-    
+
     print("Image sink pipeline:\n", image_sink_pipeline)
     image_sink_pipeline = Gst.parse_launch(image_sink_pipeline)
 
