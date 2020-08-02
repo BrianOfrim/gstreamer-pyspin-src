@@ -61,6 +61,7 @@ def run_pipeline(
     src_height: int = None,
     src_width: int = None,
     binning_level: int = 1,
+    use_leaky_queue: bool = True,
     image_sink_bin: str = "ximagesink sync=false",
     image_src_bin: str = "pyspinsrc",
 ):
@@ -79,10 +80,14 @@ def run_pipeline(
 
     appsink_element = "appsink name=appsink emit-signals=true max-buffers=1 drop=true"
     appsink_caps = "video/x-raw,format=RGB"
-    leaky_queue = "queue max-size-buffers=1 leaky=downstream"
+    image_queue = "queue"
+
+    if use_leaky_queue:
+        image_queue += " max-size-buffers=1 leaky=downstream"
+
     appsrc_element = "appsrc name=appsrc"
 
-    image_src_pipeline = f" {image_src_bin} ! {image_src_caps} ! {leaky_queue} ! videoconvert ! {appsink_caps} ! {appsink_element}"
+    image_src_pipeline = f" {image_src_bin} ! {image_src_caps} ! {image_queue} ! videoconvert ! {appsink_caps} ! {appsink_element}"
 
     print("Image src pipeline:\n", image_src_pipeline)
     image_src_pipeline = Gst.parse_launch(image_src_pipeline)
@@ -96,7 +101,7 @@ def run_pipeline(
         f"Image src pipeline state change to running successful? : {state_change_info[0] == Gst.StateChangeReturn.SUCCESS}"
     )
 
-    image_sink_pipeline = f"{appsrc_element} ! {str(appsink.sinkpad.get_current_caps())} ! {leaky_queue} ! videoconvert ! {image_sink_bin}"
+    image_sink_pipeline = f"{appsrc_element} ! {str(appsink.sinkpad.get_current_caps())} ! videoconvert ! {image_sink_bin}"
 
     print("Image sink pipeline:\n", image_sink_pipeline)
     image_sink_pipeline = Gst.parse_launch(image_sink_pipeline)

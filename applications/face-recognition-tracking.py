@@ -217,6 +217,7 @@ def main(args):
         src_height=args.source_height,
         src_width=args.source_width,
         binning_level=args.binning_level,
+        use_leaky_queue=(not args.full_queue),
         image_src_bin=args.image_src_bin,
     )
 
@@ -236,6 +237,8 @@ if __name__ == "__main__":
     parser.add_argument("--binning_level", type=int, default=1)
 
     parser.add_argument("--image_src_bin", type=str, default="pyspinsrc")
+
+    parser.add_argument("--full_queue", action="store_true")
 
     parser.add_argument(
         "--threshold",
