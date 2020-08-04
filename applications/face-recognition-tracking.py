@@ -21,7 +21,7 @@ from gst_app_src_and_sink import run_pipeline
 
 class ClusterCenter:
     def __init__(self, center):
-        self.items_clustered = 0 if center is None else 1
+        self.items_clustered = 1
         self.center = center
 
     def re_center(self, new_embedding, print_delta=True):
@@ -33,6 +33,10 @@ class ClusterCenter:
         self.center = ((self.items_clustered * self.center) + new_embedding) / (
             self.items_clustered + 1
         )
+        # beta = 0.5 ** self.items_clustered
+
+        # self.center = self.center * (1 - beta) + beta * new_embedding
+
         self.items_clustered += 1
         if print_delta:
             print(
@@ -55,13 +59,15 @@ def draw_rect(img_draw, box, stroke_color="red", stroke_width=4):
 
 def main(args):
 
+    print(args.image_src_bin)
+
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     print(f"Running inference on device: {device}")
 
     mtcnn = MTCNN(
         device=device,
         margin=0,
-        min_face_size=20,
+        min_face_size=50,
         thresholds=[0.6, 0.7, 0.7],
         factor=0.709,
         post_process=True,
@@ -80,7 +86,7 @@ def main(args):
 
     to_pil = torchvision.transforms.ToPILImage()
 
-    db = DBSCAN(eps=0.9, min_samples=1, metric="precomputed")
+    db = DBSCAN(eps=0.65, min_samples=1, metric="precomputed")
 
     cluster_centers: List[ClusterCenter] = []
 
@@ -99,6 +105,9 @@ def main(args):
 
         with torch.no_grad():
             boxes, probs = mtcnn.detect(image_data)
+
+        if boxes is not None and len(boxes) > 0:
+            boxes = boxes[np.nonzero(probs > 0.98)[0]]
 
         if boxes is not None and len(boxes) > 0:
             faces = []
@@ -131,28 +140,28 @@ def main(args):
 
             print(f"Number of existing clusters: {num_existing_clusters}")
 
-            print("")
+            # print("")
             # Print distance matrix
-            print("Distance matrix")
-            print(f"{'':10}", end="")
-            for i in range(embeddings.shape[0]):
-                if i < num_existing_clusters:
-                    print(f"{f'clust{i}':^10}", end="")
-                else:
-                    print(f"{f'face{i - num_existing_clusters}':^10}", end="")
-            print("")
+            # print("Distance matrix")
+            # print(f"{'':10}", end="")
+            # for i in range(embeddings.shape[0]):
+            # if i < num_existing_clusters:
+            #     print(f"{f'clust{i}':^10}", end="")
+            # else:
+            #     print(f"{f'face{i - num_existing_clusters}':^10}", end="")
+            # print("")
             for i1, e1 in enumerate(embeddings):
-                if i1 < num_existing_clusters:
-                    print(f"{f'clust{i1}':^10}", end="")
-                else:
-                    print(f"{f'face{i1 - num_existing_clusters}':^10}", end="")
+                # if i1 < num_existing_clusters:
+                #     print(f"{f'clust{i1}':^10}", end="")
+                # else:
+                #     print(f"{f'face{i1 - num_existing_clusters}':^10}", end="")
                 for i2, e2 in enumerate(embeddings):
                     dist = (e1 - e2).norm().item()
                     matrix[i1][i2] = dist
-                    print(f"{dist:^10.4f}", end="")
-                print("")
+            #         print(f"{dist:^10.4f}", end="")
+            #     print("")
 
-            print("")
+            # print("")
 
             db.fit(matrix)
             labels = db.labels_
