@@ -1,3 +1,4 @@
+import logging
 import math
 import os
 import time
@@ -26,23 +27,16 @@ class ClusterCenter:
 
     def re_center(self, new_embedding, print_delta=True):
 
-        # if self.center is None:
-        #     self.center = new_embedding
-        # else:
         prev_center = self.center
         self.center = ((self.items_clustered * self.center) + new_embedding) / (
             self.items_clustered + 1
         )
-        # beta = 0.5 ** self.items_clustered
-
-        # self.center = self.center * (1 - beta) + beta * new_embedding
-
         self.items_clustered += 1
         if print_delta:
-            print(
+            logging.info(
                 f"Cluster center moved by: {(self.center - prev_center).norm().item()}"
             )
-            print(f"Number of faces clustered total: {self.items_clustered}")
+            logging.info(f"Number of faces clustered total: {self.items_clustered}")
 
 
 def stack_cluster_centers(clusters: List[ClusterCenter]):
@@ -59,10 +53,11 @@ def draw_rect(img_draw, box, stroke_color="red", stroke_width=4):
 
 def main(args):
 
-    print(args.image_src_bin)
-
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-    print(f"Running inference on device: {device}")
+
+    logging.basicConfig(level=logging.INFO)
+
+    logging.info(f"Running inference on device: {device}")
 
     mtcnn = MTCNN(
         device=device,
@@ -116,7 +111,7 @@ def main(args):
                 face = extract_face(image_data, box)
                 faces.append(fixed_image_standardization(face))
 
-            print(f"Number of faces: {len(faces)}")
+            logging.debug(f"Number of faces: {len(faces)}")
 
             faces = torch.stack(faces, dim=0)
             device_faces = faces.to(device)
@@ -128,7 +123,7 @@ def main(args):
                     [stack_cluster_centers(cluster_centers), embeddings], dim=0
                 )
 
-            print(
+            logging.debug(
                 f" Embedding shape after adding existing clusters: {embeddings.shape}"
             )
 
@@ -138,30 +133,28 @@ def main(args):
 
             num_existing_clusters = len(cluster_centers)
 
-            print(f"Number of existing clusters: {num_existing_clusters}")
+            logging.debug(f"Number of existing clusters: {num_existing_clusters}")
 
-            # print("")
-            # Print distance matrix
-            # print("Distance matrix")
-            # print(f"{'':10}", end="")
-            # for i in range(embeddings.shape[0]):
-            # if i < num_existing_clusters:
-            #     print(f"{f'clust{i}':^10}", end="")
-            # else:
-            #     print(f"{f'face{i - num_existing_clusters}':^10}", end="")
-            # print("")
+            logging.debug("Distance matrix")
+            logging.debug(f"{'':10}", end="")
+            for i in range(embeddings.shape[0]):
+                if i < num_existing_clusters:
+                    logging.debug(f"{f'clust{i}':^10}", end="")
+            else:
+                logging.debug(f"{f'face{i - num_existing_clusters}':^10}", end="")
+                logging.debug("")
             for i1, e1 in enumerate(embeddings):
-                # if i1 < num_existing_clusters:
-                #     print(f"{f'clust{i1}':^10}", end="")
-                # else:
-                #     print(f"{f'face{i1 - num_existing_clusters}':^10}", end="")
+                if i1 < num_existing_clusters:
+                    logging.debug(f"{f'clust{i1}':^10}", end="")
+                else:
+                    logging.debug(f"{f'face{i1 - num_existing_clusters}':^10}", end="")
                 for i2, e2 in enumerate(embeddings):
                     dist = (e1 - e2).norm().item()
                     matrix[i1][i2] = dist
-            #         print(f"{dist:^10.4f}", end="")
-            #     print("")
+                    logging.debug(f"{dist:^10.4f}", end="")
+                logging.debug("")
 
-            # print("")
+            logging.debug("")
 
             db.fit(matrix)
             labels = db.labels_
@@ -169,8 +162,8 @@ def main(args):
             # get number of clusters
             no_clusters = len(set(labels)) - (1 if -1 in labels else 0)
 
-            print("No of clusters:", no_clusters)
-            print(labels)
+            logging.debug(f"No of clusters: {no_clusters}")
+            logging.debug(labels)
 
             if no_clusters > 0:
                 for i in range(no_clusters):
@@ -182,24 +175,26 @@ def main(args):
                     center_members = [
                         cm for cm in cluster_members if cm < num_existing_clusters
                     ]
-                    print(
+                    logging.debug(
                         f"Cluster {i}: {cluster_members}, faces: {face_members}, centers: {center_members}"
                     )
 
                     if len(face_members) == 0:
-                        print("No new faces in the cluster")
+                        logging.debug("No new faces in the cluster")
                         continue
 
                     face_embeddings = embeddings[face_members]
-                    print(f"Face embeddings shape :{face_embeddings.shape}")
+                    logging.debug(f"Face embeddings shape :{face_embeddings.shape}")
 
                     if len(center_members) > 0:
-                        print(f"Cluster containes existing center: {center_members[0]}")
+                        logging.debug(
+                            f"Cluster contains existing center: {center_members[0]}"
+                        )
                         cluster_centers[center_members[0]].re_center(
                             torch.mean(face_embeddings, 0)
                         )
                     else:
-                        print("Cluster contains all new faces")
+                        logging.debug("Cluster contains all new faces")
                         cluster_centers.append(
                             ClusterCenter(center=torch.mean(face_embeddings, 0))
                         )
@@ -216,7 +211,7 @@ def main(args):
                         )
 
         inference_time_ms = (time.monotonic() - start_time) * 1000
-        # print(f"Inference time: {inference_time_ms}")
+        logging.debug(f"Inference time: {inference_time_ms}")
 
         return augmented_image
 
