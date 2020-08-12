@@ -81,7 +81,7 @@ def main(args):
 
     to_pil = torchvision.transforms.ToPILImage()
 
-    db = DBSCAN(eps=0.65, min_samples=1, metric="precomputed")
+    db = DBSCAN(eps=0.75, min_samples=1, metric="precomputed")
 
     cluster_centers: List[ClusterCenter] = []
 
@@ -102,7 +102,7 @@ def main(args):
             boxes, probs = mtcnn.detect(image_data)
 
         if boxes is not None and len(boxes) > 0:
-            boxes = boxes[np.nonzero(probs > 0.98)[0]]
+            boxes = boxes[np.nonzero(probs > 0.95)[0]]
 
         if boxes is not None and len(boxes) > 0:
             faces = []
@@ -193,21 +193,22 @@ def main(args):
                         cluster_centers[center_members[0]].re_center(
                             torch.mean(face_embeddings, 0)
                         )
+                        face_indecies = [
+                            cm - num_existing_clusters for cm in face_members
+                        ]
+                        for box in boxes[face_indecies]:
+                            draw_rect(img_draw, box)
+                            draw_text(
+                                img_draw,
+                                box[0],
+                                box[1],
+                                str(center_members[0]),
+                                font=box_text_font,
+                            )
                     else:
                         logging.debug("Cluster contains all new faces")
                         cluster_centers.append(
                             ClusterCenter(center=torch.mean(face_embeddings, 0))
-                        )
-
-                    face_indecies = [cm - num_existing_clusters for cm in face_members]
-                    for box in boxes[face_indecies]:
-                        draw_rect(img_draw, box)
-                        draw_text(
-                            img_draw,
-                            box[0],
-                            box[1],
-                            str(center_members[0]) if len(center_members) > 0 else "?",
-                            font=box_text_font,
                         )
 
         inference_time_ms = (time.monotonic() - start_time) * 1000
