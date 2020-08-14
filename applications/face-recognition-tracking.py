@@ -44,7 +44,7 @@ def stack_cluster_centers(clusters: List[ClusterCenter]):
 
 
 def draw_text(img_draw, x, y, text, font=None):
-    img_draw.text((max(0, x), max(0, y)), text, font=font)
+    img_draw.text((max(0, x), max(0, y)), text, font=font, fill=(3, 252, 3))
 
 
 def draw_rect(img_draw, box, stroke_color="red", stroke_width=4):
@@ -55,7 +55,7 @@ def main(args):
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.DEBUG)
 
     logging.info(f"Running inference on device: {device}")
 
@@ -72,7 +72,7 @@ def main(args):
     resnet = InceptionResnetV1(pretrained="vggface2").eval().to(device)
 
     header_text_font = ImageFont.truetype(
-        "/usr/share/matplotlib/mpl-data/fonts/ttf/DejaVuSansMono.ttf", 25
+        "/usr/share/matplotlib/mpl-data/fonts/ttf/DejaVuSansMono-Bold.ttf", 25
     )
 
     box_text_font = ImageFont.truetype(
@@ -81,13 +81,16 @@ def main(args):
 
     to_pil = torchvision.transforms.ToPILImage()
 
-    db = DBSCAN(eps=0.75, min_samples=1, metric="precomputed")
+    db = DBSCAN(eps=args.cluster_threshold, min_samples=1, metric="precomputed")
 
     cluster_centers: List[ClusterCenter] = []
+
+    frame_counter = 0
 
     def user_callback(image_data):
 
         nonlocal cluster_centers
+        nonlocal frame_counter
 
         if image_data is None:
             return None
@@ -102,7 +105,7 @@ def main(args):
             boxes, probs = mtcnn.detect(image_data)
 
         if boxes is not None and len(boxes) > 0:
-            boxes = boxes[np.nonzero(probs > 0.95)[0]]
+            boxes = boxes[np.nonzero(probs > args.face_threshold)[0]]
 
         if boxes is not None and len(boxes) > 0:
             faces = []
@@ -135,26 +138,27 @@ def main(args):
 
             logging.debug(f"Number of existing clusters: {num_existing_clusters}")
 
-            logging.debug("Distance matrix")
-            logging.debug(f"{'':10}", end="")
+            matrix_string = "Distance matrix:\n"
+            matrix_string += f"{'':10}"
             for i in range(embeddings.shape[0]):
                 if i < num_existing_clusters:
-                    logging.debug(f"{f'clust{i}':^10}", end="")
-            else:
-                logging.debug(f"{f'face{i - num_existing_clusters}':^10}", end="")
-                logging.debug("")
+                    matrix_string += f"{f'clust{i}':^10}"
+                else:
+                    matrix_string += f"{f'face{i - num_existing_clusters}':^10}"
+            matrix_string += "\n"
             for i1, e1 in enumerate(embeddings):
                 if i1 < num_existing_clusters:
-                    logging.debug(f"{f'clust{i1}':^10}", end="")
+                    matrix_string += f"{f'clust{i1}':^10}"
                 else:
-                    logging.debug(f"{f'face{i1 - num_existing_clusters}':^10}", end="")
+                    matrix_string += f"{f'face{i1 - num_existing_clusters}':^10}"
                 for i2, e2 in enumerate(embeddings):
                     dist = (e1 - e2).norm().item()
                     matrix[i1][i2] = dist
-                    logging.debug(f"{dist:^10.4f}", end="")
-                logging.debug("")
+                    matrix_string += f"{dist:^10.4f}"
+                matrix_string += "\n"
 
-            logging.debug("")
+            matrix_string += "\n"
+            logging.debug(matrix_string)
 
             db.fit(matrix)
             labels = db.labels_
@@ -212,7 +216,8 @@ def main(args):
                         )
 
         inference_time_ms = (time.monotonic() - start_time) * 1000
-        logging.debug(f"Inference time: {inference_time_ms}")
+        frame_counter += 1
+        logging.debug(f"Frame {frame_counter} inference time: {inference_time_ms}")
 
         return augmented_image
 
@@ -224,6 +229,7 @@ def main(args):
         binning_level=args.binning_level,
         use_leaky_queue=(not args.full_queue),
         image_src_bin=args.image_src_bin,
+        image_sink_bin=args.image_sink_bin,
     )
 
 
@@ -243,7 +249,13 @@ if __name__ == "__main__":
 
     parser.add_argument("--image_src_bin", type=str, default="pyspinsrc")
 
+    parser.add_argument("--image_sink_bin", type=str, default="ximagesink sync=false")
+
     parser.add_argument("--full_queue", action="store_true")
+
+    parser.add_argument("--face_threshold", type=float, default=0.95)
+
+    parser.add_argument("--cluster_threshold", type=float, default=0.75)
 
     parser.add_argument(
         "--threshold",
