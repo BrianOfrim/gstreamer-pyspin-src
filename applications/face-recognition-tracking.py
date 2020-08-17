@@ -55,7 +55,7 @@ def main(args):
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.INFO)
 
     logging.info(f"Running inference on device: {device}")
 
@@ -217,7 +217,7 @@ def main(args):
 
         inference_time_ms = (time.monotonic() - start_time) * 1000
         frame_counter += 1
-        logging.debug(f"Frame {frame_counter} inference time: {inference_time_ms}")
+        logging.info(f"Frame {frame_counter} inference time: {inference_time_ms}")
 
         return augmented_image
 

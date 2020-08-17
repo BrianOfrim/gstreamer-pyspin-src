@@ -49,6 +49,8 @@ def on_new_sample(sink, appsrc, user_function):
             data = next_image.tobytes()
             next_buffer = Gst.Buffer.new_allocate(None, len(data), None)
             next_buffer.fill(0, data)
+            next_buffer.pts = buf.pts
+            next_buffer.duration = buf.duration
             appsrc.emit("push-buffer", next_buffer)
 
     buf.unmap(mapinfo)
@@ -85,7 +87,7 @@ def run_pipeline(
     if use_leaky_queue:
         image_queue += " max-size-buffers=1 leaky=downstream"
 
-    appsrc_element = "appsrc name=appsrc"
+    appsrc_element = "appsrc name=appsrc emit-signals=true format=3 block=true"
 
     image_src_pipeline = f" {image_src_bin} ! {image_src_caps} ! {image_queue} ! videoconvert ! {appsink_caps} ! {appsink_element}"
 
@@ -104,6 +106,7 @@ def run_pipeline(
     image_sink_pipeline = f"{appsrc_element} ! {str(appsink.sinkpad.get_current_caps())} ! videoconvert ! {image_sink_bin}"
 
     print("Image sink pipeline:\n", image_sink_pipeline)
+
     image_sink_pipeline = Gst.parse_launch(image_sink_pipeline)
 
     appsrc = image_sink_pipeline.get_by_name("appsrc")
@@ -115,9 +118,11 @@ def run_pipeline(
 
     loop = GObject.MainLoop()
 
-    bus = image_src_pipeline.get_bus()
-    bus.add_signal_watch()
-    bus.connect("message", on_bus_message, loop)
+    src_bus = image_src_pipeline.get_bus()
+    src_bus.add_signal_watch()
+    src_bus.connect("message", on_bus_message, loop)
+
+    sink_bus = image_sink_pipeline.get_bus()
 
     image_sink_pipeline.set_state(Gst.State.PLAYING)
     try:
@@ -126,6 +131,14 @@ def run_pipeline(
         pass
 
     image_src_pipeline.set_state(Gst.State.NULL)
+
+    image_sink_pipeline.send_event(Gst.Event.new_eos())
+
+    print("Waiting for the EOS message on the bus")
+    sink_bus.timed_pop_filtered(Gst.CLOCK_TIME_NONE, Gst.MessageType.EOS)
+    print("Stopping pipeline")
+
     image_sink_pipeline.set_state(Gst.State.NULL)
+
     while GLib.MainContext.default().iteration(False):
         pass
