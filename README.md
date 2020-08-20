@@ -141,8 +141,8 @@ Apply human pose detection from [trt_pose](https://github.com/NVIDIA-AI-IOT/trt_
 ![HumanPose](docs/assets/OfficeHumanPose.jpg)
 
 #### Face Recognition Tracking
-Location: **applications/face-recognition-tracking.py**
-Uses FaceNet to obtain facial embeddings and a DBSCAN clustering algorithm to cluster the embeddings and track individual faces across a video. 
+Location: **applications/face-recognition-tracking.py**  
+Uses FaceNet to obtain facial embeddings and a DBSCAN clustering algorithm to cluster the embeddings and track individual faces across a video.  
 ![FaceRecognitionTracking](docs/assets/annotate-cut.gif)
 
 
