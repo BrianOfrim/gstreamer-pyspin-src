@@ -87,7 +87,9 @@ def run_pipeline(
     if use_leaky_queue:
         image_queue += " max-size-buffers=1 leaky=downstream"
 
-    appsrc_element = "appsrc name=appsrc emit-signals=true format=3 block=true"
+    appsrc_element = (
+        "appsrc name=appsrc is-live=true emit-signals=true format=3 block=true"
+    )
 
     image_src_pipeline = f" {image_src_bin} ! {image_src_caps} ! {image_queue} ! videoconvert ! {appsink_caps} ! {appsink_element}"
 

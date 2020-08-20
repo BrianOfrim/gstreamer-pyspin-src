@@ -140,6 +140,11 @@ Location: **applications/human-pose.py**
 Apply human pose detection from [trt_pose](https://github.com/NVIDIA-AI-IOT/trt_pose). If a cuda device is detected it will optimize and save a TensorRT model.  
 ![HumanPose](docs/assets/OfficeHumanPose.jpg)
 
+#### Face Recognition Tracking
+Location: **applications/face-recognition-tracking.py**
+Uses FaceNet to obtain facial embeddings and a DBSCAN clustering algorithm to cluster the embeddings and track individual faces across a video. 
+![FaceRecognitionTracking](docs/assets/annotate-cut.gif)
+
 
 ## References
 Uses the following for gst buffer to numpy mapping utilities and to install [gst-python](https://github.com/GStreamer/gst-python):  
