@@ -736,7 +736,7 @@ class PySpinSrc(GstBase.PushSrc):
 
     # helper function
     def apply_caps_to_cam(self) -> bool:
-        Gst.info("Applying caps.")
+        Gst.info("Applying caps")
         try:
 
             genicam_format = self.get_format_from_gst(self.info.finfo.name).genicam
@@ -776,7 +776,7 @@ class PySpinSrc(GstBase.PushSrc):
                 self.set_cam_node_val("AcquisitionFrameRateEnabled", True)
 
             self.set_cam_node_val(
-                "AcquisitionFrameRate", self.info.fps_n / self.info.fps_d
+                "AcquisitionFrameRate", self.info.fps_n / self.info.fps_d, True
             )
 
         except (ValueError, NotImplementedError) as ex:
@@ -889,29 +889,8 @@ class PySpinSrc(GstBase.PushSrc):
     # helper function
     def get_camera_caps(self) -> Gst.Caps:
 
-        # Get current settings that effect frame rate
-        starting_pixel_format = self.get_cam_node_val("PixelFormat")
-        starting_width = self.get_cam_node_val("Width")
-        starting_height = self.get_cam_node_val("Height")
-        starting_auto_exposure = self.get_cam_node_val("ExposureAuto")
-        starting_exposure_time = self.get_cam_node_val("ExposureTime")
-        starting_auto_gain = self.get_cam_node_val("GainAuto")
-        starting_auto_white_balance = None
-        if self.cam_node_available("BalanceWhiteAuto"):
-            starting_auto_white_balance = self.get_cam_node_val("BalanceWhiteAuto")
-
-        # set values in order to maximize frame rate
         width_min, width_max = self.get_cam_node_range("Width")
         height_min, height_max = self.get_cam_node_range("Height")
-        self.set_cam_node_val("Width", width_min, False)
-        self.set_cam_node_val("Height", height_min, False)
-        self.set_cam_node_val("ExposureAuto", "Off", False)
-        self.set_cam_node_val(
-            "ExposureTime", self.get_cam_node_range("ExposureTime")[0], False
-        )
-        self.set_cam_node_val("GainAuto", "Off", False)
-        if self.cam_node_available("BalanceWhiteAuto"):
-            self.set_cam_node_val("BalanceWhiteAuto", "Off", False)
 
         genicam_formats = self.get_cam_node_entries("PixelFormat")
 
@@ -926,34 +905,13 @@ class PySpinSrc(GstBase.PushSrc):
         camera_caps = Gst.Caps.new_empty()
 
         for pixel_format in supported_pixel_formats:
-
-            self.set_cam_node_val("PixelFormat", pixel_format.genicam, False)
-
-            fr_min, fr_max = self.get_cam_node_range("AcquisitionFrameRate")
-
             camera_caps.append_structure(
                 Gst.Structure(
                     pixel_format.cap_type,
                     format=pixel_format.gst,
                     width=Gst.IntRange(range(width_min, width_max)),
                     height=Gst.IntRange(range(height_min, height_max)),
-                    framerate=Gst.FractionRange(
-                        Gst.Fraction(*Gst.util_double_to_fraction(fr_min)),
-                        Gst.Fraction(*Gst.util_double_to_fraction(fr_max)),
-                    ),
                 )
-            )
-
-        # Return settings to their original values
-        self.set_cam_node_val("PixelFormat", starting_pixel_format, False)
-        self.set_cam_node_val("Width", starting_width, False)
-        self.set_cam_node_val("Height", starting_height, False)
-        self.set_cam_node_val("ExposureAuto", starting_auto_exposure, False)
-        self.set_cam_node_val("ExposureTime", starting_exposure_time, False)
-        self.set_cam_node_val("GainAuto", starting_auto_gain, False)
-        if self.cam_node_available("BalanceWhiteAuto"):
-            self.set_cam_node_val(
-                "BalanceWhiteAuto", starting_auto_white_balance, False
             )
 
         return camera_caps
