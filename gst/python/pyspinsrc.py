@@ -295,19 +295,28 @@ class ImageAcquirer:
                 f"Integer node '{int_node.GetDisplayName()}' is not writable"
             )
 
-        value = max(value, int_node.GetMin())
-        value = min(value, int_node.GetMax())
+        min_val, max_val = self._get_int_node_range(int_node)
+        if value < min_val:
+            Gst.warning(
+                f"{int_node.GetDisplayName()}: {value} is out of range [{min_val}, {max_val}], using {min_val}"
+            )
+            value = min_val
+        if value > max_val:
+            Gst.warning(
+                f"{int_node.GetDisplayName()}: {value} is out of range [{min_val}, {max_val}], using {max_val}"
+            )
+            value = max_val
 
         int_node.SetValue(int(value))
 
-    def _get_float_node_val(self, float_node: PySpin.CFloatPtr) -> (float, float):
+    def _get_float_node_val(self, float_node: PySpin.CFloatPtr) -> float:
         if not PySpin.IsAvailable(float_node) or not PySpin.IsReadable(float_node):
             raise ValueError(
                 f"Float node '{float_node.GetDisplayName()}' is not readable"
             )
         return float_node.GetValue(IgnoreCache=True)
 
-    def _get_float_node_range(self, float_node: PySpin.CFloatPtr) -> (int, int):
+    def _get_float_node_range(self, float_node: PySpin.CFloatPtr) -> (float, float):
         if not PySpin.IsAvailable(float_node) or not PySpin.IsReadable(float_node):
             raise ValueError(
                 f"Float node '{float_node.GetDisplayName()}' is not readable"
@@ -320,8 +329,18 @@ class ImageAcquirer:
                 f"Float node '{float_node.GetDisplayName()}' is not writable"
             )
 
-        value = max(value, float_node.GetMin())
-        value = min(value, float_node.GetMax())
+        min_val, max_val = self._get_float_node_range(float_node)
+        if value < min_val:
+            Gst.warning(
+                f"{float_node.GetDisplayName()}: {value:.3f} is out of range [{min_val:.3f}, {max_val:.3f}], using {min_val:.3f}"
+            )
+            value = min_val
+        if value > max_val:
+            Gst.warning(
+                f"{float_node.GetDisplayName()}: {value:.3f} is out of range [{min_val:.3f}, {max_val:.3f}], using {max_val:.3f}"
+            )
+            value = max_val
+
         float_node.SetValue(float(value))
 
     def _get_bool_node_val(self, bool_node: PySpin.CBooleanPtr) -> bool:
@@ -755,7 +774,11 @@ class PySpinSrc(GstBase.PushSrc):
         try:
             self.image_acquirer.set_node_val(node_name, value)
             if log_value:
-                Gst.info(f"{node_name}: {self.image_acquirer.get_node_val(node_name)}")
+                node_value = self.image_acquirer.get_node_val(node_name)
+                if node_value == value:
+                    Gst.info(f"{node_name}: {node_value}")
+                else:
+                    Gst.info(f"{node_name}: requested={value}, actual={node_value}")
         except (ValueError, NotImplementedError) as ex:
             Gst.warning(f"Warning: {ex}")
 
