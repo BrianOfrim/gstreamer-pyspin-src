@@ -87,6 +87,9 @@ class ImageAcquirer:
 
         return True
 
+    def is_initialized(self):
+        return self._current_device is not None and self._current_device.IsInitialized
+
     def _reset_cam(self):
         if self._current_device is not None and self._current_device.IsValid():
             try:
@@ -632,9 +635,6 @@ class PySpinSrc(GstBase.PushSrc):
 
         # Camera capabilities
         self.camera_caps = None
-        self.fixed_caps = None
-        self.caps_set: bool = False
-        self.initial_props_set: bool = False
 
         # Image Capture Device
         self.image_acquirer: ImageAcquirer = None
@@ -687,23 +687,23 @@ class PySpinSrc(GstBase.PushSrc):
         Gst.info(f"Setting {prop.name} = {value}")
         if prop.name == "auto-exposure":
             self.auto_exposure = value
-            if self.image_acquirer is not None and self.initial_props_set:
+            if self.image_acquirer is not None and self.image_acquirer.is_initialized():
                 self.set_cam_node_val(
                     "ExposureAuto", "Continuous" if self.auto_exposure else "Off"
                 )
         elif prop.name == "auto-gain":
             self.auto_gain = value
-            if self.image_acquirer is not None and self.initial_props_set:
+            if self.image_acquirer is not None and self.image_acquirer.is_initialized():
                 self.set_cam_node_val(
                     "GainAuto", "Continuous" if self.auto_gain else "Off"
                 )
         elif prop.name == "exposure":
             self.exposure_time = value
-            if self.image_acquirer is not None and self.initial_props_set:
+            if self.image_acquirer is not None and self.image_acquirer.is_initialized():
                 self.set_cam_node_val("ExposureTime", self.exposure_time)
         elif prop.name == "gain":
             self.gain = value
-            if self.image_acquirer is not None and self.initial_props_set:
+            if self.image_acquirer is not None and self.image_acquirer.is_initialized():
                 self.set_cam_node_val("Gain", self.gain)
         elif prop.name == "auto-wb":
             self.auto_wb = value
@@ -897,8 +897,16 @@ class PySpinSrc(GstBase.PushSrc):
 
         return camera_caps
 
-    # Camera helper function
-    def start_streaming(self) -> bool:
+    # GST function
+    def do_set_caps(self, caps: Gst.Caps) -> bool:
+        Gst.info("Setting caps")
+
+        self.info.from_caps(caps)
+        self.set_blocksize(
+            self.info.size if self.info.size > 0 else self.info.width * self.info.height
+        )
+
+        Gst.info(f"Blocksize: {self.get_blocksize()} bytes")
 
         try:
             self.image_acquirer.start_acquisition()
@@ -907,23 +915,7 @@ class PySpinSrc(GstBase.PushSrc):
             return False
 
         Gst.info("Acquisition Started")
-        return True
 
-    # GST function
-    def do_set_caps(self, caps: Gst.Caps) -> bool:
-        Gst.info("Setting caps")
-        if self.caps_set:
-            return True
-        self.info.from_caps(caps)
-        self.set_blocksize(
-            self.info.size if self.info.size > 0 else self.info.width * self.info.height
-        )
-
-        Gst.info(f"Blocksize: {self.get_blocksize()} bytes")
-
-        if not self.start_streaming():
-            return False
-        self.caps_set = True
         return True
 
     # GST function
@@ -942,71 +934,64 @@ class PySpinSrc(GstBase.PushSrc):
     # GST function
     def do_fixate(self, caps: Gst.Caps) -> Gst.Caps:
         Gst.info("Fixating caps")
-        if self.fixed_caps is None:
 
-            structure = caps.get_structure(0).copy()
+        structure = caps.get_structure(0).copy()
 
-            Gst.info(f"Incoming caps: {structure}")
+        Gst.info(f"Incoming caps: {structure}")
 
-            genicam_format = self.get_cam_node_val("PixelFormat")
-            structure.fixate_field_string(
-                "format", self.get_format_from_genicam(genicam_format).gst
-            )
+        genicam_format = self.get_cam_node_val("PixelFormat")
+        structure.fixate_field_string(
+            "format", self.get_format_from_genicam(genicam_format).gst
+        )
+        self.set_cam_node_val(
+            "PixelFormat",
+            self.get_format_from_gst(structure.get_value("format")).genicam,
+        )
+
+        height = self.get_cam_node_val("Height")
+        structure.fixate_field_nearest_int("height", height)
+        self.set_cam_node_val("Height", structure.get_value("height"))
+
+        if self.center_y:
             self.set_cam_node_val(
-                "PixelFormat",
-                self.get_format_from_gst(structure.get_value("format")).genicam,
+                "OffsetY",
+                (self.get_cam_node_range("Height")[1] - self.get_cam_node_val("Height"))
+                // 2,
             )
+        else:
+            self.set_cam_node_val("OffsetY", self.offset_y)
 
-            height = self.get_cam_node_val("Height")
-            structure.fixate_field_nearest_int("height", height)
-            self.set_cam_node_val("Height", structure.get_value("height"))
+        width = self.get_cam_node_val("Width")
+        structure.fixate_field_nearest_int("width", width)
+        self.set_cam_node_val("Width", structure.get_value("width"))
 
-            if self.center_y:
-                self.set_cam_node_val(
-                    "OffsetY",
-                    (
-                        self.get_cam_node_range("Height")[1]
-                        - self.get_cam_node_val("Height")
-                    )
-                    // 2,
-                )
-            else:
-                self.set_cam_node_val("OffsetY", self.offset_y)
-
-            width = self.get_cam_node_val("Width")
-            structure.fixate_field_nearest_int("width", width)
-            self.set_cam_node_val("Width", structure.get_value("width"))
-
-            if self.center_x:
-                self.set_cam_node_val(
-                    "OffsetX",
-                    (
-                        self.get_cam_node_range("Width")[1]
-                        - self.get_cam_node_val("Width")
-                    )
-                    // 2,
-                )
-            else:
-                self.set_cam_node_val("OffsetX", self.offset_x)
-
-            if self.cam_node_available("AcquisitionFrameRateEnable"):
-                self.set_cam_node_val("AcquisitionFrameRateEnable", True)
-            else:
-                self.set_cam_node_val("AcquisitionFrameRateAuto", "Off")
-                self.set_cam_node_val("AcquisitionFrameRateEnabled", True)
-
-            frame_rate = self.get_cam_node_val("AcquisitionFrameRate")
-            structure.fixate_field_nearest_fraction("framerate", frame_rate, 1)
+        if self.center_x:
             self.set_cam_node_val(
-                "AcquisitionFrameRate", float(structure.get_value("framerate")), True
+                "OffsetX",
+                (self.get_cam_node_range("Width")[1] - self.get_cam_node_val("Width"))
+                // 2,
             )
+        else:
+            self.set_cam_node_val("OffsetX", self.offset_x)
 
-            Gst.info(f"Fixated caps: {structure}")
+        if self.cam_node_available("AcquisitionFrameRateEnable"):
+            self.set_cam_node_val("AcquisitionFrameRateEnable", True)
+        else:
+            self.set_cam_node_val("AcquisitionFrameRateAuto", "Off")
+            self.set_cam_node_val("AcquisitionFrameRateEnabled", True)
 
-            new_caps = Gst.Caps.new_empty()
-            new_caps.append_structure(structure)
-            self.fixed_caps = new_caps.fixate()
-        return self.fixed_caps
+        frame_rate = self.get_cam_node_val("AcquisitionFrameRate")
+        structure.fixate_field_nearest_fraction("framerate", frame_rate, 1)
+        self.set_cam_node_val(
+            "AcquisitionFrameRate", float(structure.get_value("framerate")), True
+        )
+
+        Gst.info(f"Fixated caps: {structure}")
+
+        new_caps = Gst.Caps.new_empty()
+        new_caps.append_structure(structure)
+
+        return new_caps.fixate()
 
     # GST function
     def do_start(self) -> bool:
@@ -1022,8 +1007,6 @@ class PySpinSrc(GstBase.PushSrc):
 
             if not self.apply_properties_to_cam():
                 return False
-
-            self.initial_props_set = True
 
             self.camera_caps = self.get_camera_caps()
 
