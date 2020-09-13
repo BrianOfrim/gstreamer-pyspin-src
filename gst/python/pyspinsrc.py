@@ -95,7 +95,7 @@ class ImageAcquirer:
                 if self._current_device.IsInitialized():
                     self._current_device.DeInit()
             except Exception as ex:
-                print(f"Error: {ex}")
+                Gst.error(f"Error: {ex}")
 
         self._device_node_map = None
         self._tl_device_node_map = None
@@ -118,6 +118,7 @@ class ImageAcquirer:
             raise ValueError(f"Error: {ex}")
 
     def get_next_image(self, logger: Callable[[str], None] = None) -> (np.ndarray, int):
+
         spinnaker_image = None
 
         while spinnaker_image is None or spinnaker_image.IsIncomplete():
@@ -332,12 +333,12 @@ class ImageAcquirer:
         min_val, max_val = self._get_float_node_range(float_node)
         if value < min_val:
             Gst.warning(
-                f"{float_node.GetDisplayName()}: {value:.3f} is out of range [{min_val:.3f}, {max_val:.3f}], using {min_val:.3f}"
+                f"{float_node.GetDisplayName()}: {value} is out of range [{min_val}, {max_val}], using {min_val}"
             )
             value = min_val
         if value > max_val:
             Gst.warning(
-                f"{float_node.GetDisplayName()}: {value:.3f} is out of range [{min_val:.3f}, {max_val:.3f}], using {max_val:.3f}"
+                f"{float_node.GetDisplayName()}: {value} is out of range [{min_val}, {max_val}], using {max_val}"
             )
             value = max_val
 
@@ -914,7 +915,12 @@ class PySpinSrc(GstBase.PushSrc):
         if self.caps_set:
             return True
         self.info.from_caps(caps)
-        self.set_blocksize(self.info.size)
+        self.set_blocksize(
+            self.info.size if self.info.size > 0 else self.info.width * self.info.height
+        )
+
+        Gst.info(f"Blocksize: {self.get_blocksize()} bytes")
+
         if not self.start_streaming():
             return False
         self.caps_set = True
