@@ -19,7 +19,7 @@ Update package manager sources:
 
 Python:  
 
-    sudo apt-get -y install python3.6 python3-pip python3.6-dev python3.6-venv python-dev python3-dev
+    sudo apt-get -y install python3.6 python3-pip python3.6-dev python3.6-venv python3-dev
 
 Build tools:  
 
@@ -27,7 +27,7 @@ Build tools:
 
 GStreamer:  
 
-    sudo apt-get install -y libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-doc gstreamer1.0-tools gstreamer1.0-x gstreamer1.0-alsa gstreamer1.0-gl gstreamer1.0-gtk3 gstreamer1.0-qt5 gstreamer1.0-pulseaudio python-gst-1.0 libgstreamer-plugins-base1.0-dev
+    sudo apt-get install -y libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-doc gstreamer1.0-tools gstreamer1.0-x gstreamer1.0-alsa gstreamer1.0-gl gstreamer1.0-gtk3 gstreamer1.0-qt5 gstreamer1.0-pulseaudio python3-gst-1.0 libgstreamer-plugins-base1.0-dev
 
 #### GStreamer pyspinsrc
 Clone this repo and install dependencies: 
