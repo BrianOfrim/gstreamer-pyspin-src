@@ -6,10 +6,14 @@ An unofficial GStreamer source plug in for the PySpin (spinnaker-python) Image A
 
 ## Install
 
+**The following instructions apply to Ubuntu 18.04**
+
 #### Spinnaker and PySpin
 
 Download the latest version of **Spinnaker** and the matching version of **PySpin** (spinnaker-python) from:  
-https://flir.app.box.com/v/SpinnakerSDK/
+https://www.flir.com/products/spinnaker-sdk/
+
+Extract and install the Spinnaker SDK package (PySpin will be installed later)
 
 #### System dependencies 
 
@@ -35,20 +39,51 @@ Clone this repo and install dependencies:
     git clone https://github.com/BrianOfrim/gstreamer-pyspin-src.git
     cd gstreamer-pyspin-src
 
+Complete **one** of the 2 following options
+
+##### Option 1: Install pip packages in a virtual environment (Storngly Recommended)
+
     python3 -m venv venv
     source venv/bin/activate
     pip install -U wheel pip setuptools Cython
-
     pip install -r requirements.txt
-    pip install <path-to-pyspin-package whl file>
+    pip install <path to pyspin>/spinnaker_python-*.whl
+
+Tell GStreamer where the python plugin loader (libgstpython.*.so) and the pyspinsrc plugins are located:  
+
+    cd gstreamer-pyspin-src # If not already there
+    export GST_PLUGIN_PATH=$PWD/venv/lib/gstreamer-1.0/:$PWD/gst/:$GST_PLUGIN_PATH
+
+The previous step will either need to be added to the user's ~/.bashrc file or repeated when a new termial is opened
+
+#### Option 2: Install pip packages for the current user
+
+    python3 -m pip install -U wheel pip setuptools Cython
+    GST_PREFIX=$HOME/.local/ python3 -m pip install -r requirements.txt
+    python3 -m pip install <path to pyspin>/spinnaker_python-*.whl
+
+Note: This should result in the gstreamer python plugin loader (libgstpython.*.so) being installed at $HOME/.local/lib/gstreamer-1.0/  
+If the variable GST_PREFIX is not set then the plugin loader will be installed at /usr/lib/gstreamer-1.0   
+Doing so would require the installtion of requirements.txt to be done as sudo which is not recommended as it may lead to problems.  
+
+Tell GStreamer where the python plugin loader (libgstpython.*.so) and the pyspinsrc plugins are located:  
+
+    cd gstreamer-pyspin-src # If not already there
+    export GST_PLUGIN_PATH=$HOME/.local/lib/gstreamer-1.0/:$PWD/gst:$GST_PLUGIN_PATH
+
+The previous step will either need to be added to the user's ~/.bashrc file or repeated when a new termial is opened
 
 ## Usage
 
-Tell GStreamer where our plugin is located:  
+Clear the GStreamer registry cache:  
 
-    export GST_PLUGIN_PATH=$GST_PLUGIN_PATH:$PWD/venv/lib/gstreamer-1.0/:$PWD/gst/
+    sudo rm -rf ~/.cache/gstreamer-1.0/
 
-Verify that the installation was successful and view plug-in info and properties:  
+Verify that the gstreamer python plugin loader can be found and instepected with no errors:  
+    
+    gst-inspect-1.0 python
+
+Verify that the pyspinsrc element can be found and instepected with no errors:  
 
     gst-inspect-1.0 pyspinsrc
 
@@ -74,15 +109,7 @@ Preforming object detection on an edge device and streaming an augmented video f
 
 
 ## Examples
-Examples require Pillow pytorch and torchvision.   
-
-Install Pillow:
-
-    pip install Pillow
-
-Install pytorch and torchvision:  
-
-    pip install torch torchvision
+Examples require Pillow, matplotlib, svgwrite, pytorch and torchvision. Install them with pip.
 
 Note: for arm platforms torch and torchvision may not be available through pip. So you may need to find an alternative installation method. For example with Nvidia Jetson devices follow the instructions here: https://elinux.org/Jetson_Zoo 
 
