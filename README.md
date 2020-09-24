@@ -34,14 +34,14 @@ GStreamer:
     sudo apt-get install -y libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-doc gstreamer1.0-tools gstreamer1.0-x gstreamer1.0-alsa gstreamer1.0-gl gstreamer1.0-gtk3 gstreamer1.0-qt5 gstreamer1.0-pulseaudio python3-gst-1.0 libgstreamer-plugins-base1.0-dev
 
 #### GStreamer pyspinsrc
-Clone this repo and install dependencies: 
+Clone this repo: 
  
     git clone https://github.com/BrianOfrim/gstreamer-pyspin-src.git
     cd gstreamer-pyspin-src
 
-Complete **one** of the 2 following options
+Complete **one** of the 2 following options for installing the dependacnies.  
 
-##### Option 1: Install pip packages in a virtual environment (Storngly Recommended)
+##### Option 1: Install pip packages in a virtual environment (Recommended)
 
     python3 -m venv venv
     source venv/bin/activate
@@ -54,24 +54,24 @@ Tell GStreamer where the python plugin loader (libgstpython.*.so) and the pyspin
     cd gstreamer-pyspin-src # If not already there
     export GST_PLUGIN_PATH=$PWD/venv/lib/gstreamer-1.0/:$PWD/gst/:$GST_PLUGIN_PATH
 
-The previous step will either need to be added to the user's ~/.bashrc file or repeated when a new termial is opened
+The previous step will either need to be added to the user's ~/.bashrc file (replace $PWD with absoulute path) or repeated when a new termial is opened
 
-#### Option 2: Install pip packages for the current user
+##### Option 2: Install pip packages for the current user, outside of a virtual environment
 
     python3 -m pip install -U wheel pip setuptools Cython
     GST_PREFIX=$HOME/.local/ python3 -m pip install -r requirements.txt
     python3 -m pip install <path to pyspin>/spinnaker_python-*.whl
 
 Note: This should result in the gstreamer python plugin loader (libgstpython.*.so) being installed at $HOME/.local/lib/gstreamer-1.0/  
-If the variable GST_PREFIX is not set then the plugin loader will be installed at /usr/lib/gstreamer-1.0   
-Doing so would require the installtion of requirements.txt to be done as sudo which is not recommended as it may lead to problems.  
+If the variable GST_PREFIX is not set then the plugin loader will be installed at /usr/lib/gstreamer-1.0/   
+Doing so would require the pip installtion of requirements.txt to be done as sudo which is not recommended as it may lead to problems.  
 
 Tell GStreamer where the python plugin loader (libgstpython.*.so) and the pyspinsrc plugins are located:  
 
     cd gstreamer-pyspin-src # If not already there
-    export GST_PLUGIN_PATH=$HOME/.local/lib/gstreamer-1.0/:$PWD/gst:$GST_PLUGIN_PATH
+    export GST_PLUGIN_PATH=$HOME/.local/lib/gstreamer-1.0/:$PWD/gst/:$GST_PLUGIN_PATH
 
-The previous step will either need to be added to the user's ~/.bashrc file or repeated when a new termial is opened
+The previous step will either need to be added to the user's ~/.bashrc file (replace $PWD with absoulute path) or repeated when a new termial is opened
 
 ## Usage
 
@@ -87,15 +87,13 @@ Verify that the pyspinsrc element can be found and instepected with no errors:
 
     gst-inspect-1.0 pyspinsrc
 
-
-Example debugging pipeline:  
-
-    GST_DEBUG=python:6 gst-launch-1.0 --gst-disable-segtrap --gst-disable-registry-fork pyspinsrc ! videoconvert ! xvimagesink sync=false
-
 Example pileline:  
 
     gst-launch-1.0 pyspinsrc ! videoconvert ! xvimagesink sync=false
 
+Example debugging pipeline:  
+
+    GST_DEBUG=python:6 gst-launch-1.0 --gst-disable-segtrap --gst-disable-registry-fork pyspinsrc ! videoconvert ! xvimagesink sync=false
 
 ## Benchmarks
 Streaming and saving video on an Nvidia Jetson Nano using hardware or software video encoding: [Jetson Nano Benchmarks](nvidia-jetson-nano-benchmarks.md)
