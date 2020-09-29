@@ -52,7 +52,11 @@ class ImageAcquirer:
             self.update_device_list()
         return self._device_list.GetSize()
 
-    def init_device(self, device_serial: str = None, device_index: int = None,) -> bool:
+    def init_device(
+        self,
+        device_serial: str = None,
+        device_index: int = None,
+    ) -> bool:
         # reset cam
         self._reset_cam()
 
@@ -446,7 +450,10 @@ class PySpinSrc(GstBase.PushSrc):
     __gstmetadata__ = ("pyspinsrc", "Src", "PySpin src element", "Brian Ofrim")
 
     __gsttemplates__ = Gst.PadTemplate.new(
-        "src", Gst.PadDirection.SRC, Gst.PadPresence.ALWAYS, Gst.Caps.new_any(),
+        "src",
+        Gst.PadDirection.SRC,
+        Gst.PadPresence.ALWAYS,
+        Gst.Caps.new_any(),
     )
 
     __gproperties__ = {
@@ -1003,15 +1010,24 @@ class PySpinSrc(GstBase.PushSrc):
                 device_serial=self.serial,
                 device_index=(0 if self.serial is None else None),
             ):
+                error_string = "Camera not found"
+                self.post_message(
+                    Gst.Message.new_error(self, GLib.Error(error_string), error_string)
+                )
                 return False
 
             if not self.apply_properties_to_cam():
+                error_string = "Camera settings could not be applied"
+                self.post_message(
+                    Gst.Message.new_error(self, GLib.Error(error_string), error_string)
+                )
                 return False
 
             self.camera_caps = self.get_camera_caps()
 
         except Exception as ex:
             Gst.error(f"Error: {ex}")
+            self.post_message(Gst.Message.new_error(self, GLib.Error(str(ex)), str(ex)))
             return False
         return True
 
