@@ -143,9 +143,11 @@ class ImageAcquirer:
 
         image_timestamp = spinnaker_image.GetTimeStamp()
 
+        image_frame_id = spinnaker_image.GetFrameID()
+
         spinnaker_image.Release()
 
-        return (image_array, image_timestamp)
+        return (image_array, image_frame_id, image_timestamp)
 
     def _get_device_node_map(self) -> PySpin.NodeMap:
         if (
@@ -1062,9 +1064,11 @@ class PySpinSrc(GstBase.PushSrc):
     def do_gst_push_src_fill(self, buffer: Gst.Buffer) -> Gst.FlowReturn:
         try:
 
-            image_array, image_timestamp_ns = self.image_acquirer.get_next_image(
-                logger=Gst.warning
-            )
+            (
+                image_array,
+                image_frame_id,
+                image_timestamp_ns,
+            ) = self.image_acquirer.get_next_image(logger=Gst.warning)
 
             with map_gst_buffer(buffer, Gst.MapFlags.READ) as mapped:
                 mapped_array = np.ndarray(
@@ -1077,6 +1081,8 @@ class PySpinSrc(GstBase.PushSrc):
                 self.previous_timestamp = image_timestamp_ns
 
             buffer.pts = image_timestamp_ns - self.timestamp_offset
+            buffer.offset = image_frame_id
+            buffer.offset_end = image_frame_id + 1
             buffer.duration = image_timestamp_ns - self.previous_timestamp
 
             self.previous_timestamp = image_timestamp_ns
@@ -1084,6 +1090,7 @@ class PySpinSrc(GstBase.PushSrc):
             Gst.log(
                 f"Sending buffer of size: {image_array.nbytes} bytes, "
                 f"type: {image_array.dtype}, "
+                f"offset: {image_frame_id}"
                 f"timestamp offset: {buffer.pts // self.MILLISECONDS_PER_NANOSECOND}ms"
             )
 
